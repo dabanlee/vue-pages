@@ -1,4 +1,13 @@
-# Vue Pages
+<p align="center">
+    <img src="Logo.png" alt="Vue Pages">
+</p>
+<h1 align="center">Vue Pages</h1>
+<p align="center">`Vue Pages` 是一套支持 「静态模板直出」的 `Vue` 多页应用解决方案。</p>
+<p align="center">
+    <a href="https://github.com/JustClear/vue-pages/blob/master/LICENSE">
+        <img src="https://img.shields.io/github/license/JustClear/vue-pages.svg" alt="MIT License">
+    </a>
+</p>
 
 ## Initialization
 
