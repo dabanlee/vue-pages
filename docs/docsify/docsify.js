@@ -1,14 +1,13 @@
 (function () {
-'use strict';
-
 /**
  * Create a cached version of a pure function.
  */
-function cached (fn) {
+function cached(fn) {
   var cache = Object.create(null);
-  return function cachedFn (str) {
-    var hit = cache[str];
-    return hit || (cache[str] = fn(str))
+  return function (str) {
+    var key = isPrimitive(str) ? str : JSON.stringify(str);
+    var hit = cache[key];
+    return hit || (cache[key] = fn(str))
   }
 }
 
@@ -19,6 +18,8 @@ var hyphenate = cached(function (str) {
   return str.replace(/([A-Z])/g, function (m) { return '-' + m.toLowerCase(); })
 });
 
+var hasOwn = Object.prototype.hasOwnProperty;
+
 /**
  * Simple Object.assign polyfill
  */
@@ -26,8 +27,6 @@ var merge =
   Object.assign ||
   function (to) {
     var arguments$1 = arguments;
-
-    var hasOwn = Object.prototype.hasOwnProperty;
 
     for (var i = 1; i < arguments.length; i++) {
       var from = Object(arguments$1[i]);
@@ -45,75 +44,92 @@ var merge =
 /**
  * Check if value is primitive
  */
-function isPrimitive (value) {
+function isPrimitive(value) {
   return typeof value === 'string' || typeof value === 'number'
 }
 
 /**
  * Perform no operation.
  */
-function noop () {}
+function noop() {}
 
 /**
  * Check if value is function
  */
-function isFn (obj) {
+function isFn(obj) {
   return typeof obj === 'function'
 }
 
-var config = merge(
-  {
-    el: '#app',
-    repo: '',
-    maxLevel: 6,
-    subMaxLevel: 0,
-    loadSidebar: null,
-    loadNavbar: null,
-    homepage: 'README.md',
-    coverpage: '',
-    basePath: '',
-    auto2top: false,
-    name: '',
-    themeColor: '',
-    nameLink: window.location.pathname,
-    autoHeader: false,
-    executeScript: null,
-    noEmoji: false,
-    ga: '',
-    mergeNavbar: false,
-    formatUpdated: '',
-    externalLinkTarget: '_blank',
-    routerMode: 'hash',
-    noCompileLinks: []
-  },
-  window.$docsify
-);
+function config () {
+  var config = merge(
+    {
+      el: '#app',
+      repo: '',
+      maxLevel: 6,
+      subMaxLevel: 0,
+      loadSidebar: null,
+      loadNavbar: null,
+      homepage: 'README.md',
+      coverpage: '',
+      basePath: '',
+      auto2top: false,
+      name: '',
+      themeColor: '',
+      nameLink: window.location.pathname,
+      autoHeader: false,
+      executeScript: null,
+      noEmoji: false,
+      ga: '',
+      ext: '.md',
+      mergeNavbar: false,
+      formatUpdated: '',
+      externalLinkTarget: '_blank',
+      routerMode: 'hash',
+      noCompileLinks: []
+    },
+    window.$docsify
+  );
 
-var script =
-  document.currentScript ||
-  [].slice
-    .call(document.getElementsByTagName('script'))
-    .filter(function (n) { return /docsify\./.test(n.src); })[0];
+  var script =
+    document.currentScript ||
+    [].slice
+      .call(document.getElementsByTagName('script'))
+      .filter(function (n) { return /docsify\./.test(n.src); })[0];
 
-if (script) {
-  for (var prop in config) {
-    var val = script.getAttribute('data-' + hyphenate(prop));
+  if (script) {
+    for (var prop in config) {
+      if (hasOwn.call(config, prop)) {
+        var val = script.getAttribute('data-' + hyphenate(prop));
 
-    if (isPrimitive(val)) {
-      config[prop] = val === '' ? true : val;
+        if (isPrimitive(val)) {
+          config[prop] = val === '' ? true : val;
+        }
+      }
+    }
+
+    if (config.loadSidebar === true) {
+      config.loadSidebar = '_sidebar' + config.ext;
+    }
+    if (config.loadNavbar === true) {
+      config.loadNavbar = '_navbar' + config.ext;
+    }
+    if (config.coverpage === true) {
+      config.coverpage = '_coverpage' + config.ext;
+    }
+    if (config.repo === true) {
+      config.repo = '';
+    }
+    if (config.name === true) {
+      config.name = '';
     }
   }
 
-  if (config.loadSidebar === true) { config.loadSidebar = '_sidebar.md'; }
-  if (config.loadNavbar === true) { config.loadNavbar = '_navbar.md'; }
-  if (config.coverpage === true) { config.coverpage = '_coverpage.md'; }
-  if (config.repo === true) { config.repo = ''; }
-  if (config.name === true) { config.name = ''; }
+  window.$docsify = config;
+
+  return config
 }
 
-window.$docsify = config;
-
-function initLifecycle (vm) {
+function initLifecycle(vm) {
   var hooks = [
     'init',
     'mounted',
@@ -131,7 +147,7 @@ function initLifecycle (vm) {
   });
 }
 
-function callHook (vm, hook, data, next) {
+function callHook(vm, hook, data, next) {
   if ( next === void 0 ) next = noop;
 
   var queue = vm._hooks[hook];
@@ -140,26 +156,46 @@ function callHook (vm, hook, data, next) {
     var hook = queue[index];
     if (index >= queue.length) {
       next(data);
-    } else {
-      if (typeof hook === 'function') {
-        if (hook.length === 2) {
-          hook(data, function (result) {
-            data = result;
-            step(index + 1);
-          });
-        } else {
-          var result = hook(data);
-          data = result !== undefined ? result : data;
+    } else if (typeof hook === 'function') {
+      if (hook.length === 2) {
+        hook(data, function (result) {
+          data = result;
           step(index + 1);
-        }
+        });
       } else {
+        var result = hook(data);
+        data = result === undefined ? data : result;
         step(index + 1);
       }
+    } else {
+      step(index + 1);
     }
   };
 
   step(0);
 }
+
+var inBrowser = !false;
+
+var isMobile = inBrowser && document.body.clientWidth <= 600;
+
+/**
+ * @see https://github.com/MoOx/pjax/blob/master/lib/is-supported.js
+ */
+var supportsPushState =
+  inBrowser &&
+  (function () {
+    // Borrowed wholesale from https://github.com/defunkt/jquery-pjax
+    return (
+      window.history &&
+      window.history.pushState &&
+      window.history.replaceState &&
+      // PushState isn’t reliable on iOS until 5.
+      !navigator.userAgent.match(
+        /((iPod|iPhone|iPad).+\bOS\s+[1-4]\D|WebApps\/.+CFNetwork)/
+      )
+    )
+  })();
 
 var cacheNode = {};
 
@@ -169,24 +205,24 @@ var cacheNode = {};
  * @param  {Boolean} noCache
  * @return {Element}
  */
-function getNode (el, noCache) {
+function getNode(el, noCache) {
   if ( noCache === void 0 ) noCache = false;
 
   if (typeof el === 'string') {
     if (typeof window.Vue !== 'undefined') {
       return find(el)
     }
-    el = noCache ? find(el) : (cacheNode[el] || (cacheNode[el] = find(el)));
+    el = noCache ? find(el) : cacheNode[el] || (cacheNode[el] = find(el));
   }
 
   return el
 }
 
-var $ = document;
+var $ = inBrowser && document;
 
-var body = $.body;
+var body = inBrowser && $.body;
 
-var head = $.head;
+var head = inBrowser && $.head;
 
 /**
  * Find element
@@ -194,7 +230,7 @@ var head = $.head;
  * find('nav') => document.querySelector('nav')
  * find(nav, 'a') => nav.querySelector('a')
  */
-function find (el, node) {
+function find(el, node) {
   return node ? el.querySelector(node) : $.querySelector(el)
 }
 
@@ -204,34 +240,38 @@ function find (el, node) {
  * findAll('a') => [].slice.call(document.querySelectorAll('a'))
  * findAll(nav, 'a') => [].slice.call(nav.querySelectorAll('a'))
  */
-function findAll (el, node) {
-  return [].slice.call(node ? el.querySelectorAll(node) : $.querySelectorAll(el))
+function findAll(el, node) {
+  return [].slice.call(
+    node ? el.querySelectorAll(node) : $.querySelectorAll(el)
+  )
 }
 
-function create (node, tpl) {
+function create(node, tpl) {
   node = $.createElement(node);
-  if (tpl) { node.innerHTML = tpl; }
+  if (tpl) {
+    node.innerHTML = tpl;
+  }
   return node
 }
 
-function appendTo (target, el) {
+function appendTo(target, el) {
   return target.appendChild(el)
 }
 
-function before (target, el) {
+function before(target, el) {
   return target.insertBefore(el, target.children[0])
 }
 
-function on (el, type, handler) {
-  isFn(type)
-    ? window.addEventListener(el, type)
-    : el.addEventListener(type, handler);
+function on(el, type, handler) {
+  isFn(type) ?
+    window.addEventListener(el, type) :
+    el.addEventListener(type, handler);
 }
 
-function off (el, type, handler) {
-  isFn(type)
-    ? window.removeEventListener(el, type)
-    : el.removeEventListener(type, handler);
+function off(el, type, handler) {
+  isFn(type) ?
+    window.removeEventListener(el, type) :
+    el.removeEventListener(type, handler);
 }
 
 /**
@@ -241,14 +281,13 @@ function off (el, type, handler) {
  * toggleClass(el, 'active') => el.classList.toggle('active')
  * toggleClass(el, 'add', 'active') => el.classList.add('active')
  */
-function toggleClass (el, type, val) {
+function toggleClass(el, type, val) {
   el && el.classList[val ? type : 'toggle'](val || type);
 }
 
-function style (content) {
+function style(content) {
   appendTo(head, create('style', content));
 }
-
 
 
 var dom = Object.freeze({
@@ -267,36 +306,18 @@ var dom = Object.freeze({
 	style: style
 });
 
-var inBrowser = typeof window !== 'undefined';
-
-var isMobile = inBrowser && document.body.clientWidth <= 600;
-
-/**
- * @see https://github.com/MoOx/pjax/blob/master/lib/is-supported.js
- */
-var supportsPushState =
-  inBrowser &&
-  (function () {
-    // Borrowed wholesale from https://github.com/defunkt/jquery-pjax
-    return (
-      window.history &&
-      window.history.pushState &&
-      window.history.replaceState &&
-      // pushState isn’t reliable on iOS until 5.
-      !navigator.userAgent.match(
-        /((iPod|iPhone|iPad).+\bOS\s+[1-4]\D|WebApps\/.+CFNetwork)/
-      )
-    )
-  })();
-
 /**
  * Render github corner
  * @param  {Object} data
  * @return {String}
  */
-function corner (data) {
-  if (!data) { return '' }
-  if (!/\/\//.test(data)) { data = 'https://github.com/' + data; }
+function corner(data) {
+  if (!data) {
+    return ''
+  }
+  if (!/\/\//.test(data)) {
+    data = 'https://github.com/' + data;
+  }
   data = data.replace(/^git\+/, '');
 
   return (
@@ -313,7 +334,7 @@ function corner (data) {
 /**
  * Render main content
  */
-function main (config) {
+function main(config) {
   var aside =
     '<button class="sidebar-toggle">' +
     '<div class="sidebar-toggle-button">' +
@@ -321,9 +342,11 @@ function main (config) {
     '</div>' +
     '</button>' +
     '<aside class="sidebar">' +
-    (config.name
-      ? ("<h1><a class=\"app-name-link\" data-nosearch>" + (config.name) + "</a></h1>")
-      : '') +
+    (config.name ?
+      ("<h1 class=\"app-name\"><a class=\"app-name-link\" data-nosearch>" + (config.logo ?
+          ("<img alt=" + (config.name) + " src=" + (config.logo) + ">") :
+          config.name) + "</a></h1>") :
+      '') +
     '<div class="sidebar-nav"><!--sidebar--></div>' +
     '</aside>';
 
@@ -339,7 +362,7 @@ function main (config) {
 /**
  * Cover Page
  */
-function cover () {
+function cover() {
   var SL = ', 100%, 85%';
   var bgc =
     'linear-gradient(to left bottom, ' +
@@ -347,8 +370,8 @@ function cover () {
     "hsl(" + (Math.floor(Math.random() * 255) + SL) + ") 100%)";
 
   return (
-    "<section class=\"cover\" style=\"background: " + bgc + "\">" +
-    '<div class="cover-main"></div>' +
+    "<section class=\"cover show\" style=\"background: " + bgc + "\">" +
+    '<div class="cover-main"><!--cover--></div>' +
     '<div class="mask"></div>' +
     '</section>'
   )
@@ -360,26 +383,27 @@ function cover () {
  * @param  {String} tpl
  * @return {String}
  */
-function tree (toc, tpl) {
-  if ( tpl === void 0 ) tpl = '';
+function tree(toc, tpl) {
+  if ( tpl === void 0 ) tpl = '<ul class="app-sub-sidebar">{inner}</ul>';
 
-  if (!toc || !toc.length) { return '' }
-
+  if (!toc || !toc.length) {
+    return ''
+  }
+  var innerHTML = '';
   toc.forEach(function (node) {
-    tpl += "<li><a class=\"section-link\" href=\"" + (node.slug) + "\">" + (node.title) + "</a></li>";
+    innerHTML += "<li><a class=\"section-link\" href=\"" + (node.slug) + "\">" + (node.title) + "</a></li>";
     if (node.children) {
-      tpl += "<li><ul class=\"children\">" + (tree(node.children)) + "</li></ul>";
+      innerHTML += tree(node.children, tpl);
     }
   });
-
-  return tpl
+  return tpl.replace('{inner}', innerHTML)
 }
 
-function helper (className, content) {
+function helper(className, content) {
   return ("<p class=\"" + className + "\">" + (content.slice(5).trim()) + "</p>")
 }
 
-function theme (color) {
+function theme(color) {
   return ("<style>:root{--theme-color: " + color + ";}</style>")
 }
 
@@ -389,7 +413,7 @@ var timeId;
 /**
  * Init progress component
  */
-function init () {
+function init() {
   var div = create('div');
 
   div.classList.add('progress');
@@ -399,7 +423,7 @@ function init () {
 /**
  * Render progress bar
  */
-var progressbar = function (ref) {
+function progressbar (ref) {
   var loaded = ref.loaded;
   var total = ref.total;
   var step = ref.step;
@@ -425,7 +449,7 @@ var progressbar = function (ref) {
       barEl.style.width = '0%';
     }, 200);
   }
-};
+}
 
 var cache = {};
 
@@ -435,8 +459,9 @@ var cache = {};
  * @param {boolean} [hasBar=false] has progress bar
  * @return { then(resolve, reject), abort }
  */
-function get (url, hasBar) {
+function get(url, hasBar, headers) {
   if ( hasBar === void 0 ) hasBar = false;
+  if ( headers === void 0 ) headers = {};
 
   var xhr = new XMLHttpRequest();
   var on = function () {
@@ -445,10 +470,15 @@ function get (url, hasBar) {
   var cached$$1 = cache[url];
 
   if (cached$$1) {
-    return { then: function (cb) { return cb(cached$$1.content, cached$$1.opt); }, abort: noop }
+    return {then: function (cb) { return cb(cached$$1.content, cached$$1.opt); }, abort: noop}
   }
 
   xhr.open('GET', url);
+  for (var i in headers) {
+    if (hasOwn.call(headers, i)) {
+      xhr.setRequestHeader(i, headers[i]);
+    }
+  }
   xhr.send();
 
   return {
@@ -492,24 +522,29 @@ function get (url, hasBar) {
   }
 }
 
-function replaceVar (block, color) {
+function replaceVar(block, color) {
   block.innerHTML = block.innerHTML.replace(
     /var\(\s*--theme-color.*?\)/g,
     color
   );
 }
 
-var cssVars = function (color) {
+function cssVars (color) {
   // Variable support
-  if (window.CSS && window.CSS.supports && window.CSS.supports('(--v:red)')) { return }
+  if (window.CSS && window.CSS.supports && window.CSS.supports('(--v:red)')) {
+    return
+  }
 
-  var styleBlocks = findAll('style:not(.inserted),link');[].forEach.call(styleBlocks, function (block) {
+  var styleBlocks = findAll('style:not(.inserted),link');
+  [].forEach.call(styleBlocks, function (block) {
     if (block.nodeName === 'STYLE') {
       replaceVar(block, color);
     } else if (block.nodeName === 'LINK') {
       var href = block.getAttribute('href');
 
-      if (!/\.css$/.test(href)) { return }
+      if (!/\.css$/.test(href)) {
+        return
+      }
 
       get(href).then(function (res) {
         var style$$1 = create('style', res);
@@ -519,7 +554,7 @@ var cssVars = function (color) {
       });
     }
   });
-};
+}
 
 var RGX = /([^{]*?)\w(?=\})/g;
 
@@ -535,7 +570,7 @@ var dict = {
 	ss: 'getSeconds'
 };
 
-var tinydate = function (str) {
+function tinydate (str) {
 	var parts=[], offset=0;
 	str.replace(RGX, function (key, _, idx) {
 		// save preceding string
@@ -558,7 +593,7 @@ var tinydate = function (str) {
 		}
 		return out;
 	};
-};
+}
 
 var commonjsGlobal = typeof window !== 'undefined' ? window : typeof global !== 'undefined' ? global : typeof self !== 'undefined' ? self : {};
 
@@ -573,69 +608,79 @@ function createCommonjsModule(fn, module) {
 var marked = createCommonjsModule(function (module, exports) {
 /**
  * marked - a markdown parser
- * Copyright (c) 2011-2014, Christopher Jeffrey. (MIT Licensed)
- * https://github.com/chjj/marked
+ * Copyright (c) 2011-2018, Christopher Jeffrey. (MIT Licensed)
+ * https://github.com/markedjs/marked
  */
 
-(function() {
-
-/**
- * Block-Level Grammar
- */
-
+(function(root) {
 var block = {
   newline: /^\n+/,
   code: /^( {4}[^\n]+\n*)+/,
   fences: noop,
-  hr: /^( *[-*_]){3,} *(?:\n+|$)/,
-  heading: /^ *(#{1,6}) *([^\n]+?) *#* *(?:\n+|$)/,
+  hr: /^ {0,3}((?:- *){3,}|(?:_ *){3,}|(?:\* *){3,})(?:\n+|$)/,
+  heading: /^ *(#{1,6}) *([^\n]+?) *(?:#+ *)?(?:\n+|$)/,
   nptable: noop,
-  lheading: /^([^\n]+)\n *(=|-){2,} *(?:\n+|$)/,
-  blockquote: /^( *>[^\n]+(\n(?!def)[^\n]+)*\n*)+/,
+  blockquote: /^( {0,3}> ?(paragraph|[^\n]*)(?:\n|$))+/,
   list: /^( *)(bull) [\s\S]+?(?:hr|def|\n{2,}(?! )(?!\1bull )\n*|\s*$)/,
-  html: /^ *(?:comment *(?:\n|\s*$)|closed *(?:\n{2,}|\s*$)|closing *(?:\n{2,}|\s*$))/,
-  def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +["(]([^\n]+)[")])? *(?:\n+|$)/,
+  html: '^ {0,3}(?:' // optional indentation
+    + '<(script|pre|style)[\\s>][\\s\\S]*?(?:</\\1>[^\\n]*\\n+|$)' // (1)
+    + '|comment[^\\n]*(\\n+|$)' // (2)
+    + '|<\\?[\\s\\S]*?\\?>\\n*' // (3)
+    + '|<![A-Z][\\s\\S]*?>\\n*' // (4)
+    + '|<!\\[CDATA\\[[\\s\\S]*?\\]\\]>\\n*' // (5)
+    + '|</?(tag)(?: +|\\n|/?>)[\\s\\S]*?(?:\\n{2,}|$)' // (6)
+    + '|<(?!script|pre|style)([a-z][\\w-]*)(?:attribute)*? */?>(?=\\h*\\n)[\\s\\S]*?(?:\\n{2,}|$)' // (7) open tag
+    + '|</(?!script|pre|style)[a-z][\\w-]*\\s*>(?=\\h*\\n)[\\s\\S]*?(?:\\n{2,}|$)' // (7) closing tag
+    + ')',
+  def: /^ {0,3}\[(label)\]: *\n? *<?([^\s>]+)>?(?:(?: +\n? *| *\n *)(title))? *(?:\n+|$)/,
   table: noop,
-  paragraph: /^((?:[^\n]+\n?(?!hr|heading|lheading|blockquote|tag|def))+)\n*/,
+  lheading: /^([^\n]+)\n *(=|-){2,} *(?:\n+|$)/,
+  paragraph: /^([^\n]+(?:\n(?!hr|heading|lheading| {0,3}>|<\/?(?:tag)(?: +|\n|\/?>)|<(?:script|pre|style|!--))[^\n]+)*)/,
   text: /^[^\n]+/
 };
 
+block._label = /(?!\s*\])(?:\\[\[\]]|[^\[\]])+/;
+block._title = /(?:"(?:\\"?|[^"\\])*"|'[^'\n]*(?:\n[^'\n]+)*\n?'|\([^()]*\))/;
+block.def = edit(block.def)
+  .replace('label', block._label)
+  .replace('title', block._title)
+  .getRegex();
+
 block.bullet = /(?:[*+-]|\d+\.)/;
 block.item = /^( *)(bull) [^\n]*(?:\n(?!\1bull )[^\n]*)*/;
-block.item = replace(block.item, 'gm')
-  (/bull/g, block.bullet)
-  ();
+block.item = edit(block.item, 'gm')
+  .replace(/bull/g, block.bullet)
+  .getRegex();
 
-block.list = replace(block.list)
-  (/bull/g, block.bullet)
-  ('hr', '\\n+(?=\\1?(?:[-*_] *){3,}(?:\\n+|$))')
-  ('def', '\\n+(?=' + block.def.source + ')')
-  ();
+block.list = edit(block.list)
+  .replace(/bull/g, block.bullet)
+  .replace('hr', '\\n+(?=\\1?(?:(?:- *){3,}|(?:_ *){3,}|(?:\\* *){3,})(?:\\n+|$))')
+  .replace('def', '\\n+(?=' + block.def.source + ')')
+  .getRegex();
 
-block.blockquote = replace(block.blockquote)
-  ('def', block.def)
-  ();
+block._tag = 'address|article|aside|base|basefont|blockquote|body|caption'
+  + '|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption'
+  + '|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe'
+  + '|legend|li|link|main|menu|menuitem|meta|nav|noframes|ol|optgroup|option'
+  + '|p|param|section|source|summary|table|tbody|td|tfoot|th|thead|title|tr'
+  + '|track|ul';
+block._comment = /<!--(?!-?>)[\s\S]*?-->/;
+block.html = edit(block.html, 'i')
+  .replace('comment', block._comment)
+  .replace('tag', block._tag)
+  .replace('attribute', / +[a-zA-Z:_][\w.:-]*(?: *= *"[^"\n]*"| *= *'[^'\n]*'| *= *[^\s"'=<>`]+)?/)
+  .getRegex();
 
-block._tag = '(?!(?:'
-  + 'a|em|strong|small|s|cite|q|dfn|abbr|data|time|code'
-  + '|var|samp|kbd|sub|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo'
-  + '|span|br|wbr|ins|del|img)\\b)\\w+(?!:/|[^\\w\\s@]*@)\\b';
+block.paragraph = edit(block.paragraph)
+  .replace('hr', block.hr)
+  .replace('heading', block.heading)
+  .replace('lheading', block.lheading)
+  .replace('tag', block._tag) // pars can be interrupted by type (6) html blocks
+  .getRegex();
 
-block.html = replace(block.html)
-  ('comment', /<!--[\s\S]*?-->/)
-  ('closed', /<(tag)[\s\S]+?<\/\1>/)
-  ('closing', /<tag(?:"[^"]*"|'[^']*'|[^'">])*?>/)
-  (/tag/g, block._tag)
-  ();
-
-block.paragraph = replace(block.paragraph)
-  ('hr', block.hr)
-  ('heading', block.heading)
-  ('lheading', block.lheading)
-  ('blockquote', block.blockquote)
-  ('tag', '<' + block._tag)
-  ('def', block.def)
-  ();
+block.blockquote = edit(block.blockquote)
+  .replace('paragraph', block.paragraph)
+  .getRegex();
 
 /**
  * Normal Block Grammar
@@ -648,24 +693,42 @@ block.normal = merge({}, block);
  */
 
 block.gfm = merge({}, block.normal, {
-  fences: /^ *(`{3,}|~{3,})[ \.]*(\S+)? *\n([\s\S]*?)\s*\1 *(?:\n+|$)/,
+  fences: /^ *(`{3,}|~{3,})[ \.]*(\S+)? *\n([\s\S]*?)\n? *\1 *(?:\n+|$)/,
   paragraph: /^/,
   heading: /^ *(#{1,6}) +([^\n]+?) *#* *(?:\n+|$)/
 });
 
-block.gfm.paragraph = replace(block.paragraph)
-  ('(?!', '(?!'
+block.gfm.paragraph = edit(block.paragraph)
+  .replace('(?!', '(?!'
     + block.gfm.fences.source.replace('\\1', '\\2') + '|'
     + block.list.source.replace('\\1', '\\3') + '|')
-  ();
+  .getRegex();
 
 /**
  * GFM + Tables Block Grammar
  */
 
 block.tables = merge({}, block.gfm, {
-  nptable: /^ *(\S.*\|.*)\n *([-:]+ *\|[-| :]*)\n((?:.*\|.*(?:\n|$))*)\n*/,
-  table: /^ *\|(.+)\n *\|( *[-:]+[-| :]*)\n((?: *\|.*(?:\n|$))*)\n*/
+  nptable: /^ *([^|\n ].*\|.*)\n *([-:]+ *\|[-| :]*)(?:\n((?:.*[^>\n ].*(?:\n|$))*)\n*|$)/,
+  table: /^ *\|(.+)\n *\|?( *[-:]+[-| :]*)(?:\n((?: *[^>\n ].*(?:\n|$))*)\n*|$)/
+});
+
+/**
+ * Pedantic grammar
+ */
+
+block.pedantic = merge({}, block.normal, {
+  html: edit(
+    '^ *(?:comment *(?:\\n|\\s*$)'
+    + '|<(tag)[\\s\\S]+?</\\1> *(?:\\n{2,}|\\s*$)' // closed tag
+    + '|<tag(?:"[^"]*"|\'[^\']*\'|\\s[^\'"/>\\s]*)*?/?> *(?:\\n{2,}|\\s*$))')
+    .replace('comment', block._comment)
+    .replace(/tag/g, '(?!(?:'
+      + 'a|em|strong|small|s|cite|q|dfn|abbr|data|time|code|var|samp|kbd|sub'
+      + '|sup|i|b|u|mark|ruby|rt|rp|bdi|bdo|span|br|wbr|ins|del|img)'
+      + '\\b)\\w+(?!:|[^\\w\\s@]*@)\\b')
+    .getRegex(),
+  def: /^ *\[([^\]]+)\]: *<?([^\s>]+)>?(?: +(["(][^\n]+[")]))? *(?:\n+|$)/
 });
 
 /**
@@ -674,11 +737,13 @@ block.tables = merge({}, block.gfm, {
 
 function Lexer(options) {
   this.tokens = [];
-  this.tokens.links = {};
+  this.tokens.links = Object.create(null);
   this.options = options || marked.defaults;
   this.rules = block.normal;
 
-  if (this.options.gfm) {
+  if (this.options.pedantic) {
+    this.rules = block.pedantic;
+  } else if (this.options.gfm) {
     if (this.options.tables) {
       this.rules = block.tables;
     } else {
@@ -720,19 +785,26 @@ Lexer.prototype.lex = function(src) {
  * Lexing
  */
 
-Lexer.prototype.token = function(src, top, bq) {
+Lexer.prototype.token = function(src, top) {
   var this$1 = this;
 
-  var src = src.replace(/^ +$/gm, '')
-    , next
-    , loose
-    , cap
-    , bull
-    , b
-    , item
-    , space
-    , i
-    , l;
+  src = src.replace(/^ +$/gm, '');
+  var next,
+      loose,
+      cap,
+      bull,
+      b,
+      item,
+      listStart,
+      listItems,
+      t,
+      space,
+      i,
+      tag,
+      l,
+      isordered,
+      istask,
+      ischecked;
 
   while (src) {
     // newline
@@ -752,7 +824,7 @@ Lexer.prototype.token = function(src, top, bq) {
       this$1.tokens.push({
         type: 'code',
         text: !this$1.options.pedantic
-          ? cap.replace(/\n+$/, '')
+          ? rtrim(cap, '\n')
           : cap
       });
       continue;
@@ -782,45 +854,36 @@ Lexer.prototype.token = function(src, top, bq) {
 
     // table no leading pipe (gfm)
     if (top && (cap = this$1.rules.nptable.exec(src))) {
-      src = src.substring(cap[0].length);
-
       item = {
         type: 'table',
-        header: cap[1].replace(/^ *| *\| *$/g, '').split(/ *\| */),
+        header: splitCells(cap[1].replace(/^ *| *\| *$/g, '')),
         align: cap[2].replace(/^ *|\| *$/g, '').split(/ *\| */),
-        cells: cap[3].replace(/\n$/, '').split('\n')
+        cells: cap[3] ? cap[3].replace(/\n$/, '').split('\n') : []
       };
 
-      for (i = 0; i < item.align.length; i++) {
-        if (/^ *-+: *$/.test(item.align[i])) {
-          item.align[i] = 'right';
-        } else if (/^ *:-+: *$/.test(item.align[i])) {
-          item.align[i] = 'center';
-        } else if (/^ *:-+ *$/.test(item.align[i])) {
-          item.align[i] = 'left';
-        } else {
-          item.align[i] = null;
+      if (item.header.length === item.align.length) {
+        src = src.substring(cap[0].length);
+
+        for (i = 0; i < item.align.length; i++) {
+          if (/^ *-+: *$/.test(item.align[i])) {
+            item.align[i] = 'right';
+          } else if (/^ *:-+: *$/.test(item.align[i])) {
+            item.align[i] = 'center';
+          } else if (/^ *:-+ *$/.test(item.align[i])) {
+            item.align[i] = 'left';
+          } else {
+            item.align[i] = null;
+          }
         }
+
+        for (i = 0; i < item.cells.length; i++) {
+          item.cells[i] = splitCells(item.cells[i], item.header.length);
+        }
+
+        this$1.tokens.push(item);
+
+        continue;
       }
-
-      for (i = 0; i < item.cells.length; i++) {
-        item.cells[i] = item.cells[i].split(/ *\| */);
-      }
-
-      this$1.tokens.push(item);
-
-      continue;
-    }
-
-    // lheading
-    if (cap = this$1.rules.lheading.exec(src)) {
-      src = src.substring(cap[0].length);
-      this$1.tokens.push({
-        type: 'heading',
-        depth: cap[2] === '=' ? 1 : 2,
-        text: cap[1]
-      });
-      continue;
     }
 
     // hr
@@ -845,7 +908,7 @@ Lexer.prototype.token = function(src, top, bq) {
       // Pass `top` to keep the current
       // "toplevel" state. This is exactly
       // how markdown.pl works.
-      this$1.token(cap, top, true);
+      this$1.token(cap, top);
 
       this$1.tokens.push({
         type: 'blockquote_end'
@@ -858,15 +921,21 @@ Lexer.prototype.token = function(src, top, bq) {
     if (cap = this$1.rules.list.exec(src)) {
       src = src.substring(cap[0].length);
       bull = cap[2];
+      isordered = bull.length > 1;
 
-      this$1.tokens.push({
+      listStart = {
         type: 'list_start',
-        ordered: bull.length > 1
-      });
+        ordered: isordered,
+        start: isordered ? +bull : '',
+        loose: false
+      };
+
+      this$1.tokens.push(listStart);
 
       // Get each top-level item.
       cap = cap[0].match(this$1.rules.item);
 
+      listItems = [];
       next = false;
       l = cap.length;
       i = 0;
@@ -907,18 +976,42 @@ Lexer.prototype.token = function(src, top, bq) {
           if (!loose) { loose = next; }
         }
 
-        this$1.tokens.push({
-          type: loose
-            ? 'loose_item_start'
-            : 'list_item_start'
-        });
+        if (loose) {
+          listStart.loose = true;
+        }
+
+        // Check for task list items
+        istask = /^\[[ xX]\] /.test(item);
+        ischecked = undefined;
+        if (istask) {
+          ischecked = item[1] !== ' ';
+          item = item.replace(/^\[[ xX]\] +/, '');
+        }
+
+        t = {
+          type: 'list_item_start',
+          task: istask,
+          checked: ischecked,
+          loose: loose
+        };
+
+        listItems.push(t);
+        this$1.tokens.push(t);
 
         // Recurse.
-        this$1.token(item, false, bq);
+        this$1.token(item, false);
 
         this$1.tokens.push({
           type: 'list_item_end'
         });
+      }
+
+      if (listStart.loose) {
+        l = listItems.length;
+        i = 0;
+        for (; i < l; i++) {
+          listItems[i].loose = true;
+        }
       }
 
       this$1.tokens.push({
@@ -943,46 +1036,63 @@ Lexer.prototype.token = function(src, top, bq) {
     }
 
     // def
-    if ((!bq && top) && (cap = this$1.rules.def.exec(src))) {
+    if (top && (cap = this$1.rules.def.exec(src))) {
       src = src.substring(cap[0].length);
-      this$1.tokens.links[cap[1].toLowerCase()] = {
-        href: cap[2],
-        title: cap[3]
-      };
+      if (cap[3]) { cap[3] = cap[3].substring(1, cap[3].length - 1); }
+      tag = cap[1].toLowerCase().replace(/\s+/g, ' ');
+      if (!this$1.tokens.links[tag]) {
+        this$1.tokens.links[tag] = {
+          href: cap[2],
+          title: cap[3]
+        };
+      }
       continue;
     }
 
     // table (gfm)
     if (top && (cap = this$1.rules.table.exec(src))) {
-      src = src.substring(cap[0].length);
-
       item = {
         type: 'table',
-        header: cap[1].replace(/^ *| *\| *$/g, '').split(/ *\| */),
+        header: splitCells(cap[1].replace(/^ *| *\| *$/g, '')),
         align: cap[2].replace(/^ *|\| *$/g, '').split(/ *\| */),
-        cells: cap[3].replace(/(?: *\| *)?\n$/, '').split('\n')
+        cells: cap[3] ? cap[3].replace(/(?: *\| *)?\n$/, '').split('\n') : []
       };
 
-      for (i = 0; i < item.align.length; i++) {
-        if (/^ *-+: *$/.test(item.align[i])) {
-          item.align[i] = 'right';
-        } else if (/^ *:-+: *$/.test(item.align[i])) {
-          item.align[i] = 'center';
-        } else if (/^ *:-+ *$/.test(item.align[i])) {
-          item.align[i] = 'left';
-        } else {
-          item.align[i] = null;
+      if (item.header.length === item.align.length) {
+        src = src.substring(cap[0].length);
+
+        for (i = 0; i < item.align.length; i++) {
+          if (/^ *-+: *$/.test(item.align[i])) {
+            item.align[i] = 'right';
+          } else if (/^ *:-+: *$/.test(item.align[i])) {
+            item.align[i] = 'center';
+          } else if (/^ *:-+ *$/.test(item.align[i])) {
+            item.align[i] = 'left';
+          } else {
+            item.align[i] = null;
+          }
         }
+
+        for (i = 0; i < item.cells.length; i++) {
+          item.cells[i] = splitCells(
+            item.cells[i].replace(/^ *\| *| *\| *$/g, ''),
+            item.header.length);
+        }
+
+        this$1.tokens.push(item);
+
+        continue;
       }
+    }
 
-      for (i = 0; i < item.cells.length; i++) {
-        item.cells[i] = item.cells[i]
-          .replace(/^ *\| *| *\| *$/g, '')
-          .split(/ *\| */);
-      }
-
-      this$1.tokens.push(item);
-
+    // lheading
+    if (cap = this$1.rules.lheading.exec(src)) {
+      src = src.substring(cap[0].length);
+      this$1.tokens.push({
+        type: 'heading',
+        depth: cap[2] === '=' ? 1 : 2,
+        text: cap[1]
+      });
       continue;
     }
 
@@ -1010,8 +1120,7 @@ Lexer.prototype.token = function(src, top, bq) {
     }
 
     if (src) {
-      throw new
-        Error('Infinite loop on byte: ' + src.charCodeAt(0));
+      throw new Error('Infinite loop on byte: ' + src.charCodeAt(0));
     }
   }
 
@@ -1023,32 +1132,55 @@ Lexer.prototype.token = function(src, top, bq) {
  */
 
 var inline = {
-  escape: /^\\([\\`*{}\[\]()#+\-.!_>])/,
-  autolink: /^<([^ >]+(@|:\/)[^ >]+)>/,
+  escape: /^\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/,
+  autolink: /^<(scheme:[^\s\x00-\x1f<>]*|email)>/,
   url: noop,
-  tag: /^<!--[\s\S]*?-->|^<\/?\w+(?:"[^"]*"|'[^']*'|[^'">])*?>/,
-  link: /^!?\[(inside)\]\(href\)/,
-  reflink: /^!?\[(inside)\]\s*\[([^\]]*)\]/,
-  nolink: /^!?\[((?:\[[^\]]*\]|[^\[\]])*)\]/,
-  strong: /^__([\s\S]+?)__(?!_)|^\*\*([\s\S]+?)\*\*(?!\*)/,
-  em: /^\b_((?:[^_]|__)+?)_\b|^\*((?:\*\*|[\s\S])+?)\*(?!\*)/,
-  code: /^(`+)\s*([\s\S]*?[^`])\s*\1(?!`)/,
-  br: /^ {2,}\n(?!\s*$)/,
+  tag: '^comment'
+    + '|^</[a-zA-Z][\\w:-]*\\s*>' // self-closing tag
+    + '|^<[a-zA-Z][\\w-]*(?:attribute)*?\\s*/?>' // open tag
+    + '|^<\\?[\\s\\S]*?\\?>' // processing instruction, e.g. <?php ?>
+    + '|^<![a-zA-Z]+\\s[\\s\\S]*?>' // declaration, e.g. <!DOCTYPE html>
+    + '|^<!\\[CDATA\\[[\\s\\S]*?\\]\\]>', // CDATA section
+  link: /^!?\[(label)\]\(href(?:\s+(title))?\s*\)/,
+  reflink: /^!?\[(label)\]\[(?!\s*\])((?:\\[\[\]]?|[^\[\]\\])+)\]/,
+  nolink: /^!?\[(?!\s*\])((?:\[[^\[\]]*\]|\\[\[\]]|[^\[\]])*)\](?:\[\])?/,
+  strong: /^__([^\s])__(?!_)|^\*\*([^\s])\*\*(?!\*)|^__([^\s][\s\S]*?[^\s])__(?!_)|^\*\*([^\s][\s\S]*?[^\s])\*\*(?!\*)/,
+  em: /^_([^\s_])_(?!_)|^\*([^\s*"<\[])\*(?!\*)|^_([^\s][\s\S]*?[^\s_])_(?!_)|^_([^\s_][\s\S]*?[^\s])_(?!_)|^\*([^\s"<\[][\s\S]*?[^\s*])\*(?!\*)|^\*([^\s*"<\[][\s\S]*?[^\s])\*(?!\*)/,
+  code: /^(`+)([^`]|[^`][\s\S]*?[^`])\1(?!`)/,
+  br: /^( {2,}|\\)\n(?!\s*$)/,
   del: noop,
-  text: /^[\s\S]+?(?=[\\<!\[_*`]| {2,}\n|$)/
+  text: /^(`+|[^`])[\s\S]*?(?=[\\<!\[`*]|\b_| {2,}\n|$)/
 };
 
-inline._inside = /(?:\[[^\]]*\]|[^\[\]]|\](?=[^\[]*\]))*/;
-inline._href = /\s*<?([\s\S]*?)>?(?:\s+['"]([\s\S]*?)['"])?\s*/;
+inline._escapes = /\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])/g;
 
-inline.link = replace(inline.link)
-  ('inside', inline._inside)
-  ('href', inline._href)
-  ();
+inline._scheme = /[a-zA-Z][a-zA-Z0-9+.-]{1,31}/;
+inline._email = /[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+(@)[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?![-_])/;
+inline.autolink = edit(inline.autolink)
+  .replace('scheme', inline._scheme)
+  .replace('email', inline._email)
+  .getRegex();
 
-inline.reflink = replace(inline.reflink)
-  ('inside', inline._inside)
-  ();
+inline._attribute = /\s+[a-zA-Z:_][\w.:-]*(?:\s*=\s*"[^"]*"|\s*=\s*'[^']*'|\s*=\s*[^\s"'=<>`]+)?/;
+
+inline.tag = edit(inline.tag)
+  .replace('comment', block._comment)
+  .replace('attribute', inline._attribute)
+  .getRegex();
+
+inline._label = /(?:\[[^\[\]]*\]|\\[\[\]]?|`[^`]*`|[^\[\]\\])*?/;
+inline._href = /\s*(<(?:\\[<>]?|[^\s<>\\])*>|(?:\\[()]?|\([^\s\x00-\x1f\\]*\)|[^\s\x00-\x1f()\\])*?)/;
+inline._title = /"(?:\\"?|[^"\\])*"|'(?:\\'?|[^'\\])*'|\((?:\\\)?|[^)\\])*\)/;
+
+inline.link = edit(inline.link)
+  .replace('label', inline._label)
+  .replace('href', inline._href)
+  .replace('title', inline._title)
+  .getRegex();
+
+inline.reflink = edit(inline.reflink)
+  .replace('label', inline._label)
+  .getRegex();
 
 /**
  * Normal Inline Grammar
@@ -1062,7 +1194,13 @@ inline.normal = merge({}, inline);
 
 inline.pedantic = merge({}, inline.normal, {
   strong: /^__(?=\S)([\s\S]*?\S)__(?!_)|^\*\*(?=\S)([\s\S]*?\S)\*\*(?!\*)/,
-  em: /^_(?=\S)([\s\S]*?\S)_(?!_)|^\*(?=\S)([\s\S]*?\S)\*(?!\*)/
+  em: /^_(?=\S)([\s\S]*?\S)_(?!_)|^\*(?=\S)([\s\S]*?\S)\*(?!\*)/,
+  link: edit(/^!?\[(label)\]\((.*?)\)/)
+    .replace('label', inline._label)
+    .getRegex(),
+  reflink: edit(/^!?\[(label)\]\s*\[([^\]]*)\]/)
+    .replace('label', inline._label)
+    .getRegex()
 });
 
 /**
@@ -1070,22 +1208,27 @@ inline.pedantic = merge({}, inline.normal, {
  */
 
 inline.gfm = merge({}, inline.normal, {
-  escape: replace(inline.escape)('])', '~|])')(),
-  url: /^(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/,
-  del: /^~~(?=\S)([\s\S]*?\S)~~/,
-  text: replace(inline.text)
-    (']|', '~]|')
-    ('|', '|https?://|')
-    ()
+  escape: edit(inline.escape).replace('])', '~|])').getRegex(),
+  _extended_email: /[A-Za-z0-9._+-]+(@)[a-zA-Z0-9-_]+(?:\.[a-zA-Z0-9-_]*[a-zA-Z0-9])+(?![-_])/,
+  url: /^((?:ftp|https?):\/\/|www\.)(?:[a-zA-Z0-9\-]+\.?)+[^\s<]*|^email/,
+  _backpedal: /(?:[^?!.,:;*_~()&]+|\([^)]*\)|&(?![a-zA-Z0-9]+;$)|[?!.,:;*_~)]+(?!$))+/,
+  del: /^~+(?=\S)([\s\S]*?\S)~+/,
+  text: edit(inline.text)
+    .replace(']|', '~]|')
+    .replace('|$', '|https?://|ftp://|www\\.|[a-zA-Z0-9.!#$%&\'*+/=?^_`{\\|}~-]+@|$')
+    .getRegex()
 });
 
+inline.gfm.url = edit(inline.gfm.url)
+  .replace('email', inline.gfm._extended_email)
+  .getRegex();
 /**
  * GFM + Line Breaks Inline Grammar
  */
 
 inline.breaks = merge({}, inline.gfm, {
-  br: replace(inline.br)('{2,}', '*')(),
-  text: replace(inline.gfm.text)('{2,}', '*')()
+  br: edit(inline.br).replace('{2,}', '*').getRegex(),
+  text: edit(inline.gfm.text).replace('{2,}', '*').getRegex()
 });
 
 /**
@@ -1096,22 +1239,21 @@ function InlineLexer(links, options) {
   this.options = options || marked.defaults;
   this.links = links;
   this.rules = inline.normal;
-  this.renderer = this.options.renderer || new Renderer;
+  this.renderer = this.options.renderer || new Renderer();
   this.renderer.options = this.options;
 
   if (!this.links) {
-    throw new
-      Error('Tokens array requires a `links` property.');
+    throw new Error('Tokens array requires a `links` property.');
   }
 
-  if (this.options.gfm) {
+  if (this.options.pedantic) {
+    this.rules = inline.pedantic;
+  } else if (this.options.gfm) {
     if (this.options.breaks) {
       this.rules = inline.breaks;
     } else {
       this.rules = inline.gfm;
     }
-  } else if (this.options.pedantic) {
-    this.rules = inline.pedantic;
   }
 }
 
@@ -1137,11 +1279,13 @@ InlineLexer.output = function(src, links, options) {
 InlineLexer.prototype.output = function(src) {
   var this$1 = this;
 
-  var out = ''
-    , link
-    , text
-    , href
-    , cap;
+  var out = '',
+      link,
+      text,
+      href,
+      title,
+      cap,
+      prevCapZero;
 
   while (src) {
     // escape
@@ -1155,10 +1299,8 @@ InlineLexer.prototype.output = function(src) {
     if (cap = this$1.rules.autolink.exec(src)) {
       src = src.substring(cap[0].length);
       if (cap[2] === '@') {
-        text = cap[1].charAt(6) === ':'
-          ? this$1.mangle(cap[1].substring(7))
-          : this$1.mangle(cap[1]);
-        href = this$1.mangle('mailto:') + text;
+        text = escape(this$1.mangle(cap[1]));
+        href = 'mailto:' + text;
       } else {
         text = escape(cap[1]);
         href = text;
@@ -1169,9 +1311,23 @@ InlineLexer.prototype.output = function(src) {
 
     // url (gfm)
     if (!this$1.inLink && (cap = this$1.rules.url.exec(src))) {
+      if (cap[2] === '@') {
+        text = escape(cap[0]);
+        href = 'mailto:' + text;
+      } else {
+        // do extended autolink path validation
+        do {
+          prevCapZero = cap[0];
+          cap[0] = this$1.rules._backpedal.exec(cap[0])[0];
+        } while (prevCapZero !== cap[0]);
+        text = escape(cap[0]);
+        if (cap[1] === 'www.') {
+          href = 'http://' + text;
+        } else {
+          href = text;
+        }
+      }
       src = src.substring(cap[0].length);
-      text = escape(cap[1]);
-      href = text;
       out += this$1.renderer.link(href, null, text);
       continue;
     }
@@ -1183,6 +1339,12 @@ InlineLexer.prototype.output = function(src) {
       } else if (this$1.inLink && /^<\/a>/i.test(cap[0])) {
         this$1.inLink = false;
       }
+      if (!this$1.inRawBlock && /^<(pre|code|kbd|script)(\s|>)/i.test(cap[0])) {
+        this$1.inRawBlock = true;
+      } else if (this$1.inRawBlock && /^<\/(pre|code|kbd|script)(\s|>)/i.test(cap[0])) {
+        this$1.inRawBlock = false;
+      }
+
       src = src.substring(cap[0].length);
       out += this$1.options.sanitize
         ? this$1.options.sanitizer
@@ -1196,9 +1358,23 @@ InlineLexer.prototype.output = function(src) {
     if (cap = this$1.rules.link.exec(src)) {
       src = src.substring(cap[0].length);
       this$1.inLink = true;
+      href = cap[2];
+      if (this$1.options.pedantic) {
+        link = /^([^'"]*[^\s])\s+(['"])(.*)\2/.exec(href);
+
+        if (link) {
+          href = link[1];
+          title = link[3];
+        } else {
+          title = '';
+        }
+      } else {
+        title = cap[3] ? cap[3].slice(1, -1) : '';
+      }
+      href = href.trim().replace(/^<([\s\S]*)>$/, '$1');
       out += this$1.outputLink(cap, {
-        href: cap[2],
-        title: cap[3]
+        href: InlineLexer.escapes(href),
+        title: InlineLexer.escapes(title)
       });
       this$1.inLink = false;
       continue;
@@ -1224,21 +1400,21 @@ InlineLexer.prototype.output = function(src) {
     // strong
     if (cap = this$1.rules.strong.exec(src)) {
       src = src.substring(cap[0].length);
-      out += this$1.renderer.strong(this$1.output(cap[2] || cap[1]));
+      out += this$1.renderer.strong(this$1.output(cap[4] || cap[3] || cap[2] || cap[1]));
       continue;
     }
 
     // em
     if (cap = this$1.rules.em.exec(src)) {
       src = src.substring(cap[0].length);
-      out += this$1.renderer.em(this$1.output(cap[2] || cap[1]));
+      out += this$1.renderer.em(this$1.output(cap[6] || cap[5] || cap[4] || cap[3] || cap[2] || cap[1]));
       continue;
     }
 
     // code
     if (cap = this$1.rules.code.exec(src)) {
       src = src.substring(cap[0].length);
-      out += this$1.renderer.codespan(escape(cap[2], true));
+      out += this$1.renderer.codespan(escape(cap[2].trim(), true));
       continue;
     }
 
@@ -1259,17 +1435,24 @@ InlineLexer.prototype.output = function(src) {
     // text
     if (cap = this$1.rules.text.exec(src)) {
       src = src.substring(cap[0].length);
-      out += this$1.renderer.text(escape(this$1.smartypants(cap[0])));
+      if (this$1.inRawBlock) {
+        out += this$1.renderer.text(cap[0]);
+      } else {
+        out += this$1.renderer.text(escape(this$1.smartypants(cap[0])));
+      }
       continue;
     }
 
     if (src) {
-      throw new
-        Error('Infinite loop on byte: ' + src.charCodeAt(0));
+      throw new Error('Infinite loop on byte: ' + src.charCodeAt(0));
     }
   }
 
   return out;
+};
+
+InlineLexer.escapes = function(text) {
+  return text ? text.replace(InlineLexer.rules._escapes, '$1') : text;
 };
 
 /**
@@ -1277,8 +1460,8 @@ InlineLexer.prototype.output = function(src) {
  */
 
 InlineLexer.prototype.outputLink = function(cap, link) {
-  var href = escape(link.href)
-    , title = link.title ? escape(link.title) : null;
+  var href = link.href,
+      title = link.title ? escape(link.title) : null;
 
   return cap[0].charAt(0) !== '!'
     ? this.renderer.link(href, title, this.output(cap[1]))
@@ -1314,10 +1497,10 @@ InlineLexer.prototype.smartypants = function(text) {
 
 InlineLexer.prototype.mangle = function(text) {
   if (!this.options.mangle) { return text; }
-  var out = ''
-    , l = text.length
-    , i = 0
-    , ch;
+  var out = '',
+      l = text.length,
+      i = 0,
+      ch;
 
   for (; i < l; i++) {
     ch = text.charCodeAt(i);
@@ -1335,7 +1518,7 @@ InlineLexer.prototype.mangle = function(text) {
  */
 
 function Renderer(options) {
-  this.options = options || {};
+  this.options = options || marked.defaults;
 }
 
 Renderer.prototype.code = function(code, lang, escaped) {
@@ -1350,7 +1533,7 @@ Renderer.prototype.code = function(code, lang, escaped) {
   if (!lang) {
     return '<pre><code>'
       + (escaped ? code : escape(code, true))
-      + '\n</code></pre>';
+      + '</code></pre>';
   }
 
   return '<pre><code class="'
@@ -1358,7 +1541,7 @@ Renderer.prototype.code = function(code, lang, escaped) {
     + escape(lang, true)
     + '">'
     + (escaped ? code : escape(code, true))
-    + '\n</code></pre>\n';
+    + '</code></pre>\n';
 };
 
 Renderer.prototype.blockquote = function(quote) {
@@ -1370,29 +1553,42 @@ Renderer.prototype.html = function(html) {
 };
 
 Renderer.prototype.heading = function(text, level, raw) {
-  return '<h'
-    + level
-    + ' id="'
-    + this.options.headerPrefix
-    + raw.toLowerCase().replace(/[^\w]+/g, '-')
-    + '">'
-    + text
-    + '</h'
-    + level
-    + '>\n';
+  if (this.options.headerIds) {
+    return '<h'
+      + level
+      + ' id="'
+      + this.options.headerPrefix
+      + raw.toLowerCase().replace(/[^\w]+/g, '-')
+      + '">'
+      + text
+      + '</h'
+      + level
+      + '>\n';
+  }
+  // ignore IDs
+  return '<h' + level + '>' + text + '</h' + level + '>\n';
 };
 
 Renderer.prototype.hr = function() {
   return this.options.xhtml ? '<hr/>\n' : '<hr>\n';
 };
 
-Renderer.prototype.list = function(body, ordered) {
-  var type = ordered ? 'ol' : 'ul';
-  return '<' + type + '>\n' + body + '</' + type + '>\n';
+Renderer.prototype.list = function(body, ordered, start) {
+  var type = ordered ? 'ol' : 'ul',
+      startatt = (ordered && start !== 1) ? (' start="' + start + '"') : '';
+  return '<' + type + startatt + '>\n' + body + '</' + type + '>\n';
 };
 
 Renderer.prototype.listitem = function(text) {
   return '<li>' + text + '</li>\n';
+};
+
+Renderer.prototype.checkbox = function(checked) {
+  return '<input '
+    + (checked ? 'checked="" ' : '')
+    + 'disabled="" type="checkbox"'
+    + (this.options.xhtml ? ' /' : '')
+    + '> ';
 };
 
 Renderer.prototype.paragraph = function(text) {
@@ -1400,13 +1596,13 @@ Renderer.prototype.paragraph = function(text) {
 };
 
 Renderer.prototype.table = function(header, body) {
+  if (body) { body = '<tbody>' + body + '</tbody>'; }
+
   return '<table>\n'
     + '<thead>\n'
     + header
     + '</thead>\n'
-    + '<tbody>\n'
     + body
-    + '</tbody>\n'
     + '</table>\n';
 };
 
@@ -1417,7 +1613,7 @@ Renderer.prototype.tablerow = function(content) {
 Renderer.prototype.tablecell = function(content, flags) {
   var type = flags.header ? 'th' : 'td';
   var tag = flags.align
-    ? '<' + type + ' style="text-align:' + flags.align + '">'
+    ? '<' + type + ' align="' + flags.align + '">'
     : '<' + type + '>';
   return tag + content + '</' + type + '>\n';
 };
@@ -1450,13 +1646,21 @@ Renderer.prototype.link = function(href, title, text) {
         .replace(/[^\w:]/g, '')
         .toLowerCase();
     } catch (e) {
-      return '';
+      return text;
     }
-    if (prot.indexOf('javascript:') === 0 || prot.indexOf('vbscript:') === 0) {
-      return '';
+    if (prot.indexOf('javascript:') === 0 || prot.indexOf('vbscript:') === 0 || prot.indexOf('data:') === 0) {
+      return text;
     }
   }
-  var out = '<a href="' + href + '"';
+  if (this.options.baseUrl && !originIndependentUrl.test(href)) {
+    href = resolveUrl(this.options.baseUrl, href);
+  }
+  try {
+    href = encodeURI(href).replace(/%25/g, '%');
+  } catch (e) {
+    return text;
+  }
+  var out = '<a href="' + escape(href) + '"';
   if (title) {
     out += ' title="' + title + '"';
   }
@@ -1465,6 +1669,9 @@ Renderer.prototype.link = function(href, title, text) {
 };
 
 Renderer.prototype.image = function(href, title, text) {
+  if (this.options.baseUrl && !originIndependentUrl.test(href)) {
+    href = resolveUrl(this.options.baseUrl, href);
+  }
   var out = '<img src="' + href + '" alt="' + text + '"';
   if (title) {
     out += ' title="' + title + '"';
@@ -1478,6 +1685,32 @@ Renderer.prototype.text = function(text) {
 };
 
 /**
+ * TextRenderer
+ * returns only the textual part of the token
+ */
+
+function TextRenderer() {}
+
+// no need for block level renderers
+
+TextRenderer.prototype.strong =
+TextRenderer.prototype.em =
+TextRenderer.prototype.codespan =
+TextRenderer.prototype.del =
+TextRenderer.prototype.text = function (text) {
+  return text;
+};
+
+TextRenderer.prototype.link =
+TextRenderer.prototype.image = function(href, title, text) {
+  return '' + text;
+};
+
+TextRenderer.prototype.br = function() {
+  return '';
+};
+
+/**
  * Parsing & Compiling
  */
 
@@ -1485,7 +1718,7 @@ function Parser(options) {
   this.tokens = [];
   this.token = null;
   this.options = options || marked.defaults;
-  this.options.renderer = this.options.renderer || new Renderer;
+  this.options.renderer = this.options.renderer || new Renderer();
   this.renderer = this.options.renderer;
   this.renderer.options = this.options;
 }
@@ -1494,8 +1727,8 @@ function Parser(options) {
  * Static Parse Method
  */
 
-Parser.parse = function(src, options, renderer) {
-  var parser = new Parser(options, renderer);
+Parser.parse = function(src, options) {
+  var parser = new Parser(options);
   return parser.parse(src);
 };
 
@@ -1506,7 +1739,12 @@ Parser.parse = function(src, options, renderer) {
 Parser.prototype.parse = function(src) {
   var this$1 = this;
 
-  this.inline = new InlineLexer(src.links, this.options, this.renderer);
+  this.inline = new InlineLexer(src.links, this.options);
+  // use an InlineLexer with a TextRenderer to extract pure text
+  this.inlineText = new InlineLexer(
+    src.links,
+    merge({}, this.options, {renderer: new TextRenderer()})
+  );
   this.tokens = src.reverse();
 
   var out = '';
@@ -1567,7 +1805,7 @@ Parser.prototype.tok = function() {
       return this.renderer.heading(
         this.inline.output(this.token.text),
         this.token.depth,
-        this.token.text);
+        unescape(this.inlineText.output(this.token.text)));
     }
     case 'code': {
       return this.renderer.code(this.token.text,
@@ -1575,18 +1813,16 @@ Parser.prototype.tok = function() {
         this.token.escaped);
     }
     case 'table': {
-      var header = ''
-        , body = ''
-        , i
-        , row
-        , cell
-        , flags
-        , j;
+      var header = '',
+          body = '',
+          i,
+          row,
+          cell,
+          j;
 
       // header
       cell = '';
       for (i = 0; i < this.token.header.length; i++) {
-        flags = { header: true, align: this$1.token.align[i] };
         cell += this$1.renderer.tablecell(
           this$1.inline.output(this$1.token.header[i]),
           { header: true, align: this$1.token.align[i] }
@@ -1610,7 +1846,7 @@ Parser.prototype.tok = function() {
       return this.renderer.table(header, body);
     }
     case 'blockquote_start': {
-      var body = '';
+      body = '';
 
       while (this.next().type !== 'blockquote_end') {
         body += this$1.tok();
@@ -1619,40 +1855,35 @@ Parser.prototype.tok = function() {
       return this.renderer.blockquote(body);
     }
     case 'list_start': {
-      var body = ''
-        , ordered = this.token.ordered;
+      body = '';
+      var ordered = this.token.ordered,
+          start = this.token.start;
 
       while (this.next().type !== 'list_end') {
         body += this$1.tok();
       }
 
-      return this.renderer.list(body, ordered);
+      return this.renderer.list(body, ordered, start);
     }
     case 'list_item_start': {
-      var body = '';
+      body = '';
+      var loose = this.token.loose;
+
+      if (this.token.task) {
+        body += this.renderer.checkbox(this.token.checked);
+      }
 
       while (this.next().type !== 'list_item_end') {
-        body += this$1.token.type === 'text'
+        body += !loose && this$1.token.type === 'text'
           ? this$1.parseText()
           : this$1.tok();
       }
 
       return this.renderer.listitem(body);
     }
-    case 'loose_item_start': {
-      var body = '';
-
-      while (this.next().type !== 'list_item_end') {
-        body += this$1.tok();
-      }
-
-      return this.renderer.listitem(body);
-    }
     case 'html': {
-      var html = !this.token.pre && !this.options.pedantic
-        ? this.inline.output(this.token.text)
-        : this.token.text;
-      return this.renderer.html(html);
+      // TODO parse inline content if parameter markdown=1
+      return this.renderer.html(this.token.text);
     }
     case 'paragraph': {
       return this.renderer.paragraph(this.inline.output(this.token.text));
@@ -1668,17 +1899,35 @@ Parser.prototype.tok = function() {
  */
 
 function escape(html, encode) {
-  return html
-    .replace(!encode ? /&(?!#?\w+;)/g : /&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  if (encode) {
+    if (escape.escapeTest.test(html)) {
+      return html.replace(escape.escapeReplace, function (ch) { return escape.replacements[ch] });
+    }
+  } else {
+    if (escape.escapeTestNoEncode.test(html)) {
+      return html.replace(escape.escapeReplaceNoEncode, function (ch) { return escape.replacements[ch] });
+    }
+  }
+
+  return html;
 }
 
+escape.escapeTest = /[&<>"']/;
+escape.escapeReplace = /[&<>"']/g;
+escape.replacements = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+};
+
+escape.escapeTestNoEncode = /[<>"']|&(?!#?\w+;)/;
+escape.escapeReplaceNoEncode = /[<>"']|&(?!#?\w+;)/g;
+
 function unescape(html) {
-	// explicitly match decimal, hex, and named HTML entities 
-  return html.replace(/&(#(?:\d+)|(?:#x[0-9A-Fa-f]+)|(?:\w+));?/g, function(_, n) {
+  // explicitly match decimal, hex, and named HTML entities
+  return html.replace(/&(#(?:\d+)|(?:#x[0-9A-Fa-f]+)|(?:\w+));?/ig, function(_, n) {
     n = n.toLowerCase();
     if (n === 'colon') { return ':'; }
     if (n.charAt(0) === '#') {
@@ -1690,17 +1939,45 @@ function unescape(html) {
   });
 }
 
-function replace(regex, opt) {
-  regex = regex.source;
+function edit(regex, opt) {
+  regex = regex.source || regex;
   opt = opt || '';
-  return function self(name, val) {
-    if (!name) { return new RegExp(regex, opt); }
-    val = val.source || val;
-    val = val.replace(/(^|[^\[])\^/g, '$1');
-    regex = regex.replace(name, val);
-    return self;
+  return {
+    replace: function(name, val) {
+      val = val.source || val;
+      val = val.replace(/(^|[^\[])\^/g, '$1');
+      regex = regex.replace(name, val);
+      return this;
+    },
+    getRegex: function() {
+      return new RegExp(regex, opt);
+    }
   };
 }
+
+function resolveUrl(base, href) {
+  if (!baseUrls[' ' + base]) {
+    // we can ignore everything in base after the last slash of its path component,
+    // but we might need to add _that_
+    // https://tools.ietf.org/html/rfc3986#section-3
+    if (/^[^:]+:\/*[^/]*$/.test(base)) {
+      baseUrls[' ' + base] = base + '/';
+    } else {
+      baseUrls[' ' + base] = rtrim(base, '/', true);
+    }
+  }
+  base = baseUrls[' ' + base];
+
+  if (href.slice(0, 2) === '//') {
+    return base.replace(/:[\s\S]*/, ':') + href;
+  } else if (href.charAt(0) === '/') {
+    return base.replace(/(:\/*[^/]*)[\s\S]*/, '$1') + href;
+  } else {
+    return base + href;
+  }
+}
+var baseUrls = {};
+var originIndependentUrl = /^$|^[a-z][a-z0-9+.-]*:|^[?#]/i;
 
 function noop() {}
 noop.exec = noop;
@@ -1708,9 +1985,9 @@ noop.exec = noop;
 function merge(obj) {
   var arguments$1 = arguments;
 
-  var i = 1
-    , target
-    , key;
+  var i = 1,
+      target,
+      key;
 
   for (; i < arguments.length; i++) {
     target = arguments$1[i];
@@ -1724,12 +2001,78 @@ function merge(obj) {
   return obj;
 }
 
+function splitCells(tableRow, count) {
+  // ensure that every cell-delimiting pipe has a space
+  // before it to distinguish it from an escaped pipe
+  var row = tableRow.replace(/\|/g, function (match, offset, str) {
+        var escaped = false,
+            curr = offset;
+        while (--curr >= 0 && str[curr] === '\\') { escaped = !escaped; }
+        if (escaped) {
+          // odd number of slashes means | is escaped
+          // so we leave it alone
+          return '|';
+        } else {
+          // add space before unescaped |
+          return ' |';
+        }
+      }),
+      cells = row.split(/ \|/),
+      i = 0;
+
+  if (cells.length > count) {
+    cells.splice(count);
+  } else {
+    while (cells.length < count) { cells.push(''); }
+  }
+
+  for (; i < cells.length; i++) {
+    // leading or trailing whitespace is ignored per the gfm spec
+    cells[i] = cells[i].trim().replace(/\\\|/g, '|');
+  }
+  return cells;
+}
+
+// Remove trailing 'c's. Equivalent to str.replace(/c*$/, '').
+// /c*$/ is vulnerable to REDOS.
+// invert: Remove suffix of non-c chars instead. Default falsey.
+function rtrim(str, c, invert) {
+  if (str.length === 0) {
+    return '';
+  }
+
+  // Length of suffix matching the invert condition.
+  var suffLen = 0;
+
+  // Step left until we fail to match the invert condition.
+  while (suffLen < str.length) {
+    var currChar = str.charAt(str.length - suffLen - 1);
+    if (currChar === c && !invert) {
+      suffLen++;
+    } else if (currChar !== c && invert) {
+      suffLen++;
+    } else {
+      break;
+    }
+  }
+
+  return str.substr(0, str.length - suffLen);
+}
 
 /**
  * Marked
  */
 
 function marked(src, opt, callback) {
+  // throw error in case of non string input
+  if (typeof src === 'undefined' || src === null) {
+    throw new Error('marked(): input parameter is undefined or null');
+  }
+  if (typeof src !== 'string') {
+    throw new Error('marked(): input parameter is of type '
+      + Object.prototype.toString.call(src) + ', string expected');
+  }
+
   if (callback || typeof opt === 'function') {
     if (!callback) {
       callback = opt;
@@ -1738,10 +2081,10 @@ function marked(src, opt, callback) {
 
     opt = merge({}, marked.defaults, opt || {});
 
-    var highlight = opt.highlight
-      , tokens
-      , pending
-      , i = 0;
+    var highlight = opt.highlight,
+        tokens,
+        pending,
+        i = 0;
 
     try {
       tokens = Lexer.lex(src, opt);
@@ -1803,9 +2146,9 @@ function marked(src, opt, callback) {
     if (opt) { opt = merge({}, marked.defaults, opt); }
     return Parser.parse(Lexer.lex(src, opt), opt);
   } catch (e) {
-    e.message += '\nPlease report this to https://github.com/chjj/marked.';
+    e.message += '\nPlease report this to https://github.com/markedjs/marked.';
     if ((opt || marked.defaults).silent) {
-      return '<p>An error occured:</p><pre>'
+      return '<p>An error occurred:</p><pre>'
         + escape(e.message + '', true)
         + '</pre>';
     }
@@ -1823,23 +2166,29 @@ marked.setOptions = function(opt) {
   return marked;
 };
 
-marked.defaults = {
-  gfm: true,
-  tables: true,
-  breaks: false,
-  pedantic: false,
-  sanitize: false,
-  sanitizer: null,
-  mangle: true,
-  smartLists: false,
-  silent: false,
-  highlight: null,
-  langPrefix: 'lang-',
-  smartypants: false,
-  headerPrefix: '',
-  renderer: new Renderer,
-  xhtml: false
+marked.getDefaults = function () {
+  return {
+    baseUrl: null,
+    breaks: false,
+    gfm: true,
+    headerIds: true,
+    headerPrefix: '',
+    highlight: null,
+    langPrefix: 'language-',
+    mangle: true,
+    pedantic: false,
+    renderer: new Renderer(),
+    sanitize: false,
+    sanitizer: null,
+    silent: false,
+    smartLists: false,
+    smartypants: false,
+    tables: true,
+    xhtml: false
+  };
 };
+
+marked.defaults = marked.getDefaults();
 
 /**
  * Expose
@@ -1849,6 +2198,7 @@ marked.Parser = Parser;
 marked.parser = Parser.parse;
 
 marked.Renderer = Renderer;
+marked.TextRenderer = TextRenderer;
 
 marked.Lexer = Lexer;
 marked.lexer = Lexer.lex;
@@ -1861,10 +2211,7 @@ marked.parse = marked;
 {
   module.exports = marked;
 }
-
-}).call(function() {
-  return this || (typeof window !== 'undefined' ? window : commonjsGlobal);
-}());
+})(commonjsGlobal || (typeof window !== 'undefined' ? window : commonjsGlobal));
 });
 
 var prism = createCommonjsModule(function (module) {
@@ -1889,10 +2236,12 @@ var _self = (typeof window !== 'undefined')
 var Prism = (function(){
 
 // Private helper vars
-var lang = /\blang(?:uage)?-(\w+)\b/i;
+var lang = /\blang(?:uage)?-([\w-]+)\b/i;
 var uniqueId = 0;
 
 var _ = _self.Prism = {
+	manual: _self.Prism && _self.Prism.manual,
+	disableWorkerMessageHandler: _self.Prism && _self.Prism.disableWorkerMessageHandler,
 	util: {
 		encode: function (tokens) {
 			if (tokens instanceof Token) {
@@ -1916,24 +2265,38 @@ var _ = _self.Prism = {
 		},
 
 		// Deep clone a language definition (e.g. to extend it)
-		clone: function (o) {
+		clone: function (o, visited) {
 			var type = _.util.type(o);
+			visited = visited || {};
 
 			switch (type) {
 				case 'Object':
+					if (visited[_.util.objId(o)]) {
+						return visited[_.util.objId(o)];
+					}
 					var clone = {};
+					visited[_.util.objId(o)] = clone;
 
 					for (var key in o) {
 						if (o.hasOwnProperty(key)) {
-							clone[key] = _.util.clone(o[key]);
+							clone[key] = _.util.clone(o[key], visited);
 						}
 					}
 
 					return clone;
 
 				case 'Array':
-					// Check for existence for IE8
-					return o.map && o.map(function(v) { return _.util.clone(v); });
+					if (visited[_.util.objId(o)]) {
+						return visited[_.util.objId(o)];
+					}
+					var clone = [];
+					visited[_.util.objId(o)] = clone;
+
+					o.forEach(function (v, i) {
+						clone[i] = _.util.clone(v, visited);
+					});
+
+					return clone;
 			}
 
 			return o;
@@ -2028,6 +2391,10 @@ var _ = _self.Prism = {
 	plugins: {},
 
 	highlightAll: function(async, callback) {
+		_.highlightAllUnder(document, async, callback);
+	},
+
+	highlightAllUnder: function(container, async, callback) {
 		var env = {
 			callback: callback,
 			selector: 'code[class*="language-"], [class*="language-"] code, code[class*="lang-"], [class*="lang-"] code'
@@ -2035,7 +2402,7 @@ var _ = _self.Prism = {
 
 		_.hooks.run("before-highlightall", env);
 
-		var elements = env.elements || document.querySelectorAll(env.selector);
+		var elements = env.elements || container.querySelectorAll(env.selector);
 
 		for (var i=0, element; element = elements[i++];) {
 			_.highlightElement(element, async === true, env.callback);
@@ -2058,11 +2425,13 @@ var _ = _self.Prism = {
 		// Set language on the element, if not present
 		element.className = element.className.replace(lang, '').replace(/\s+/g, ' ') + ' language-' + language;
 
-		// Set language on the parent, for styling
-		parent = element.parentNode;
+		if (element.parentNode) {
+			// Set language on the parent, for styling
+			parent = element.parentNode;
 
-		if (/pre/i.test(parent.nodeName)) {
-			parent.className = parent.className.replace(lang, '').replace(/\s+/g, ' ') + ' language-' + language;
+			if (/pre/i.test(parent.nodeName)) {
+				parent.className = parent.className.replace(lang, '').replace(/\s+/g, ' ') + ' language-' + language;
+			}
 		}
 
 		var code = element.textContent;
@@ -2078,7 +2447,9 @@ var _ = _self.Prism = {
 
 		if (!env.code || !env.grammar) {
 			if (env.code) {
+				_.hooks.run('before-highlight', env);
 				env.element.textContent = env.code;
+				_.hooks.run('after-highlight', env);
 			}
 			_.hooks.run('complete', env);
 			return;
@@ -2122,28 +2493,27 @@ var _ = _self.Prism = {
 	},
 
 	highlight: function (text, grammar, language) {
-		var tokens = _.tokenize(text, grammar);
-		return Token.stringify(_.util.encode(tokens), language);
+		var env = {
+			code: text,
+			grammar: grammar,
+			language: language
+		};
+		_.hooks.run('before-tokenize', env);
+		env.tokens = _.tokenize(env.code, env.grammar);
+		_.hooks.run('after-tokenize', env);
+		return Token.stringify(_.util.encode(env.tokens), env.language);
 	},
 
-	tokenize: function(text, grammar, language) {
+	matchGrammar: function (text, strarr, grammar, index, startPos, oneshot, target) {
 		var Token = _.Token;
 
-		var strarr = [text];
-
-		var rest = grammar.rest;
-
-		if (rest) {
-			for (var token in rest) {
-				grammar[token] = rest[token];
-			}
-
-			delete grammar.rest;
-		}
-
-		tokenloop: for (var token in grammar) {
+		for (var token in grammar) {
 			if(!grammar.hasOwnProperty(token) || !grammar[token]) {
 				continue;
+			}
+
+			if (token == target) {
+				return;
 			}
 
 			var patterns = grammar[token];
@@ -2166,28 +2536,22 @@ var _ = _self.Prism = {
 				pattern = pattern.pattern || pattern;
 
 				// Don’t cache length as it changes during the loop
-				for (var i=0, pos = 0; i<strarr.length; pos += strarr[i].length, ++i) {
+				for (var i = index, pos = startPos; i < strarr.length; pos += strarr[i].length, ++i) {
 
 					var str = strarr[i];
 
 					if (strarr.length > text.length) {
 						// Something went terribly wrong, ABORT, ABORT!
-						break tokenloop;
+						return;
 					}
 
 					if (str instanceof Token) {
 						continue;
 					}
 
-					pattern.lastIndex = 0;
-
-					var match = pattern.exec(str),
-					    delNum = 1;
-
-					// Greedy patterns can override/remove up to two previously matched tokens
-					if (!match && greedy && i != strarr.length - 1) {
+					if (greedy && i != strarr.length - 1) {
 						pattern.lastIndex = pos;
-						match = pattern.exec(text);
+						var match = pattern.exec(text);
 						if (!match) {
 							break;
 						}
@@ -2197,7 +2561,7 @@ var _ = _self.Prism = {
 						    k = i,
 						    p = pos;
 
-						for (var len = strarr.length; k < len && p < to; ++k) {
+						for (var len = strarr.length; k < len && (p < to || (!strarr[k].type && !strarr[k - 1].greedy)); ++k) {
 							p += strarr[k].length;
 							// Move the index i to the element in strarr that is closest to from
 							if (from >= p) {
@@ -2206,11 +2570,8 @@ var _ = _self.Prism = {
 							}
 						}
 
-						/*
-						 * If strarr[i] is a Token, then the match starts inside another Token, which is invalid
-						 * If strarr[k - 1] is greedy we are in conflict with another greedy pattern
-						 */
-						if (strarr[i] instanceof Token || strarr[k - 1].greedy) {
+						// If strarr[i] is a Token, then the match starts inside another Token, which is invalid
+						if (strarr[i] instanceof Token) {
 							continue;
 						}
 
@@ -2218,14 +2579,23 @@ var _ = _self.Prism = {
 						delNum = k - i;
 						str = text.slice(pos, p);
 						match.index -= pos;
+					} else {
+						pattern.lastIndex = 0;
+
+						var match = pattern.exec(str),
+							delNum = 1;
 					}
 
 					if (!match) {
+						if (oneshot) {
+							break;
+						}
+
 						continue;
 					}
 
 					if(lookbehind) {
-						lookbehindLength = match[1].length;
+						lookbehindLength = match[1] ? match[1].length : 0;
 					}
 
 					var from = match.index + lookbehindLength,
@@ -2237,6 +2607,8 @@ var _ = _self.Prism = {
 					var args = [i, delNum];
 
 					if (before) {
+						++i;
+						pos += before.length;
 						args.push(before);
 					}
 
@@ -2249,9 +2621,31 @@ var _ = _self.Prism = {
 					}
 
 					Array.prototype.splice.apply(strarr, args);
+
+					if (delNum != 1)
+						{ _.matchGrammar(text, strarr, grammar, i, pos, true, token); }
+
+					if (oneshot)
+						{ break; }
 				}
 			}
 		}
+	},
+
+	tokenize: function(text, grammar, language) {
+		var strarr = [text];
+
+		var rest = grammar.rest;
+
+		if (rest) {
+			for (var token in rest) {
+				grammar[token] = rest[token];
+			}
+
+			delete grammar.rest;
+		}
+
+		_.matchGrammar(text, strarr, grammar, 0, 0, false);
 
 		return strarr;
 	},
@@ -2311,10 +2705,6 @@ Token.stringify = function(o, language, parent) {
 		parent: parent
 	};
 
-	if (env.type == 'comment') {
-		env.attributes['spellcheck'] = 'true';
-	}
-
 	if (o.alias) {
 		var aliases = _.util.type(o.alias) === 'Array' ? o.alias : [o.alias];
 		Array.prototype.push.apply(env.classes, aliases);
@@ -2335,18 +2725,21 @@ if (!_self.document) {
 		// in Node.js
 		return _self.Prism;
 	}
- 	// In worker
-	_self.addEventListener('message', function(evt) {
-		var message = JSON.parse(evt.data),
-		    lang = message.language,
-		    code = message.code,
-		    immediateClose = message.immediateClose;
 
-		_self.postMessage(_.highlight(code, _.languages[lang], lang));
-		if (immediateClose) {
-			_self.close();
-		}
-	}, false);
+	if (!_.disableWorkerMessageHandler) {
+		// In worker
+		_self.addEventListener('message', function (evt) {
+			var message = JSON.parse(evt.data),
+				lang = message.language,
+				code = message.code,
+				immediateClose = message.immediateClose;
+
+			_self.postMessage(_.highlight(code, _.languages[lang], lang));
+			if (immediateClose) {
+				_self.close();
+			}
+		}, false);
+	}
 
 	return _self.Prism;
 }
@@ -2357,7 +2750,7 @@ var script = document.currentScript || [].slice.call(document.getElementsByTagNa
 if (script) {
 	_.filename = script.src;
 
-	if (document.addEventListener && !script.hasAttribute('data-manual')) {
+	if (!_.manual && !script.hasAttribute('data-manual')) {
 		if(document.readyState !== "loading") {
 			if (window.requestAnimationFrame) {
 				window.requestAnimationFrame(_.highlightAll);
@@ -2390,12 +2783,13 @@ if (typeof commonjsGlobal !== 'undefined') {
 ********************************************** */
 
 Prism.languages.markup = {
-	'comment': /<!--[\w\W]*?-->/,
-	'prolog': /<\?[\w\W]+?\?>/,
-	'doctype': /<!DOCTYPE[\w\W]+?>/i,
-	'cdata': /<!\[CDATA\[[\w\W]*?]]>/i,
+	'comment': /<!--[\s\S]*?-->/,
+	'prolog': /<\?[\s\S]+?\?>/,
+	'doctype': /<!DOCTYPE[\s\S]+?>/i,
+	'cdata': /<!\[CDATA\[[\s\S]*?]]>/i,
 	'tag': {
-		pattern: /<\/?(?!\d)[^\s>\/=$<]+(?:\s+[^\s>\/=]+(?:=(?:("|')(?:\\\1|\\?(?!\1)[\w\W])*\1|[^\s'">=]+))?)*\s*\/?>/i,
+		pattern: /<\/?(?!\d)[^\s>\/=$<%]+(?:\s+[^\s>\/=]+(?:=(?:("|')(?:\\[\s\S]|(?!\1)[^\\])*\1|[^\s'">=]+))?)*\s*\/?>/i,
+		greedy: true,
 		inside: {
 			'tag': {
 				pattern: /^<\/?[^\s>\/]+/i,
@@ -2405,9 +2799,15 @@ Prism.languages.markup = {
 				}
 			},
 			'attr-value': {
-				pattern: /=(?:('|")[\w\W]*?(\1)|[^\s>]+)/i,
+				pattern: /=(?:("|')(?:\\[\s\S]|(?!\1)[^\\])*\1|[^\s'">=]+)/i,
 				inside: {
-					'punctuation': /[=>"']/
+					'punctuation': [
+						/^=/,
+						{
+							pattern: /(^|[^\\])["']/,
+							lookbehind: true
+						}
+					]
 				}
 			},
 			'punctuation': /\/?>/,
@@ -2422,6 +2822,9 @@ Prism.languages.markup = {
 	},
 	'entity': /&#?[\da-z]{1,8};/i
 };
+
+Prism.languages.markup['tag'].inside['attr-value'].inside['entity'] =
+	Prism.languages.markup['entity'];
 
 // Plugin to make entity title show the real entity, idea by Roman Komarov
 Prism.hooks.add('wrap', function(env) {
@@ -2442,41 +2845,42 @@ Prism.languages.svg = Prism.languages.markup;
 ********************************************** */
 
 Prism.languages.css = {
-	'comment': /\/\*[\w\W]*?\*\//,
+	'comment': /\/\*[\s\S]*?\*\//,
 	'atrule': {
-		pattern: /@[\w-]+?.*?(;|(?=\s*\{))/i,
+		pattern: /@[\w-]+?.*?(?:;|(?=\s*\{))/i,
 		inside: {
 			'rule': /@[\w-]+/
 			// See rest below
 		}
 	},
-	'url': /url\((?:(["'])(\\(?:\r\n|[\w\W])|(?!\1)[^\\\r\n])*\1|.*?)\)/i,
-	'selector': /[^\{\}\s][^\{\};]*?(?=\s*\{)/,
+	'url': /url\((?:(["'])(?:\\(?:\r\n|[\s\S])|(?!\1)[^\\\r\n])*\1|.*?)\)/i,
+	'selector': /[^{}\s][^{};]*?(?=\s*\{)/,
 	'string': {
-		pattern: /("|')(\\(?:\r\n|[\w\W])|(?!\1)[^\\\r\n])*\1/,
+		pattern: /("|')(?:\\(?:\r\n|[\s\S])|(?!\1)[^\\\r\n])*\1/,
 		greedy: true
 	},
-	'property': /(\b|\B)[\w-]+(?=\s*:)/i,
+	'property': /[-_a-z\xA0-\uFFFF][-\w\xA0-\uFFFF]*(?=\s*:)/i,
 	'important': /\B!important\b/i,
 	'function': /[-a-z0-9]+(?=\()/i,
 	'punctuation': /[(){};:]/
 };
 
-Prism.languages.css['atrule'].inside.rest = Prism.util.clone(Prism.languages.css);
+Prism.languages.css['atrule'].inside.rest = Prism.languages.css;
 
 if (Prism.languages.markup) {
 	Prism.languages.insertBefore('markup', 'tag', {
 		'style': {
-			pattern: /(<style[\w\W]*?>)[\w\W]*?(?=<\/style>)/i,
+			pattern: /(<style[\s\S]*?>)[\s\S]*?(?=<\/style>)/i,
 			lookbehind: true,
 			inside: Prism.languages.css,
-			alias: 'language-css'
+			alias: 'language-css',
+			greedy: true
 		}
 	});
-	
+
 	Prism.languages.insertBefore('inside', 'attr-value', {
 		'style-attr': {
-			pattern: /\s*style=("|').*?\1/i,
+			pattern: /\s*style=("|')(?:\\[\s\S]|(?!\1)[^\\])*\1/i,
 			inside: {
 				'attr-name': {
 					pattern: /^\s*style/i,
@@ -2500,29 +2904,30 @@ if (Prism.languages.markup) {
 Prism.languages.clike = {
 	'comment': [
 		{
-			pattern: /(^|[^\\])\/\*[\w\W]*?\*\//,
+			pattern: /(^|[^\\])\/\*[\s\S]*?(?:\*\/|$)/,
 			lookbehind: true
 		},
 		{
 			pattern: /(^|[^\\:])\/\/.*/,
-			lookbehind: true
+			lookbehind: true,
+			greedy: true
 		}
 	],
 	'string': {
-		pattern: /(["'])(\\(?:\r\n|[\s\S])|(?!\1)[^\\\r\n])*\1/,
+		pattern: /(["'])(?:\\(?:\r\n|[\s\S])|(?!\1)[^\\\r\n])*\1/,
 		greedy: true
 	},
 	'class-name': {
-		pattern: /((?:\b(?:class|interface|extends|implements|trait|instanceof|new)\s+)|(?:catch\s+\())[a-z0-9_\.\\]+/i,
+		pattern: /((?:\b(?:class|interface|extends|implements|trait|instanceof|new)\s+)|(?:catch\s+\())[\w.\\]+/i,
 		lookbehind: true,
 		inside: {
-			punctuation: /(\.|\\)/
+			punctuation: /[.\\]/
 		}
 	},
-	'keyword': /\b(if|else|while|do|for|return|in|instanceof|function|new|try|throw|catch|finally|null|break|continue)\b/,
-	'boolean': /\b(true|false)\b/,
+	'keyword': /\b(?:if|else|while|do|for|return|in|instanceof|function|new|try|throw|catch|finally|null|break|continue)\b/,
+	'boolean': /\b(?:true|false)\b/,
 	'function': /[a-z0-9_]+(?=\()/i,
-	'number': /\b-?(?:0x[\da-f]+|\d*\.?\d+(?:e[+-]?\d+)?)\b/i,
+	'number': /\b0x[\da-f]+\b|(?:\b\d+\.?\d*|\B\.\d+)(?:e[+-]?\d+)?/i,
 	'operator': /--?|\+\+?|!=?=?|<=?|>=?|==?=?|&&?|\|\|?|\?|\*|\/|~|\^|%/,
 	'punctuation': /[{}[\];(),.:]/
 };
@@ -2533,53 +2938,62 @@ Prism.languages.clike = {
 ********************************************** */
 
 Prism.languages.javascript = Prism.languages.extend('clike', {
-	'keyword': /\b(as|async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|finally|for|from|function|get|if|implements|import|in|instanceof|interface|let|new|null|of|package|private|protected|public|return|set|static|super|switch|this|throw|try|typeof|var|void|while|with|yield)\b/,
-	'number': /\b-?(0x[\dA-Fa-f]+|0b[01]+|0o[0-7]+|\d*\.?\d+([Ee][+-]?\d+)?|NaN|Infinity)\b/,
+	'keyword': /\b(?:as|async|await|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|finally|for|from|function|get|if|implements|import|in|instanceof|interface|let|new|null|of|package|private|protected|public|return|set|static|super|switch|this|throw|try|typeof|var|void|while|with|yield)\b/,
+	'number': /\b(?:0[xX][\dA-Fa-f]+|0[bB][01]+|0[oO][0-7]+|NaN|Infinity)\b|(?:\b\d+\.?\d*|\B\.\d+)(?:[Ee][+-]?\d+)?/,
 	// Allow for all non-ASCII characters (See http://stackoverflow.com/a/2008444)
-	'function': /[_$a-zA-Z\xA0-\uFFFF][_$a-zA-Z0-9\xA0-\uFFFF]*(?=\()/i,
-	'operator': /--?|\+\+?|!=?=?|<=?|>=?|==?=?|&&?|\|\|?|\?|\*\*?|\/|~|\^|%|\.{3}/
+	'function': /[_$a-z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*\()/i,
+	'operator': /-[-=]?|\+[+=]?|!=?=?|<<?=?|>>?>?=?|=(?:==?|>)?|&[&=]?|\|[|=]?|\*\*?=?|\/=?|~|\^=?|%=?|\?|\.{3}/
 });
 
 Prism.languages.insertBefore('javascript', 'keyword', {
 	'regex': {
-		pattern: /(^|[^/])\/(?!\/)(\[.+?]|\\.|[^/\\\r\n])+\/[gimyu]{0,5}(?=\s*($|[\r\n,.;})]))/,
+		pattern: /((?:^|[^$\w\xA0-\uFFFF."'\])\s])\s*)\/(\[[^\]\r\n]+]|\\.|[^/\\\[\r\n])+\/[gimyu]{0,5}(?=\s*($|[\r\n,.;})\]]))/,
 		lookbehind: true,
 		greedy: true
-	}
+	},
+	// This must be declared before keyword because we use "function" inside the look-forward
+	'function-variable': {
+		pattern: /[_$a-z\xA0-\uFFFF][$\w\xA0-\uFFFF]*(?=\s*=\s*(?:function\b|(?:\([^()]*\)|[_$a-z\xA0-\uFFFF][$\w\xA0-\uFFFF]*)\s*=>))/i,
+		alias: 'function'
+	},
+	'constant': /\b[A-Z][A-Z\d_]*\b/
 });
 
 Prism.languages.insertBefore('javascript', 'string', {
 	'template-string': {
-		pattern: /`(?:\\\\|\\?[^\\])*?`/,
+		pattern: /`(?:\\[\s\S]|\${[^}]+}|[^\\`])*`/,
 		greedy: true,
 		inside: {
 			'interpolation': {
-				pattern: /\$\{[^}]+\}/,
+				pattern: /\${[^}]+}/,
 				inside: {
 					'interpolation-punctuation': {
-						pattern: /^\$\{|\}$/,
+						pattern: /^\${|}$/,
 						alias: 'punctuation'
 					},
-					rest: Prism.languages.javascript
+					rest: null // See below
 				}
 			},
 			'string': /[\s\S]+/
 		}
 	}
 });
+Prism.languages.javascript['template-string'].inside['interpolation'].inside.rest = Prism.languages.javascript;
 
 if (Prism.languages.markup) {
 	Prism.languages.insertBefore('markup', 'tag', {
 		'script': {
-			pattern: /(<script[\w\W]*?>)[\w\W]*?(?=<\/script>)/i,
+			pattern: /(<script[\s\S]*?>)[\s\S]*?(?=<\/script>)/i,
 			lookbehind: true,
 			inside: Prism.languages.javascript,
-			alias: 'language-javascript'
+			alias: 'language-javascript',
+			greedy: true
 		}
 	});
 }
 
 Prism.languages.js = Prism.languages.javascript;
+
 
 /* **********************************************
      Begin prism-file-highlight.js
@@ -2604,56 +3018,69 @@ Prism.languages.js = Prism.languages.javascript;
 			'tex': 'latex'
 		};
 
-		if(Array.prototype.forEach) { // Check to prevent error in IE8
-			Array.prototype.slice.call(document.querySelectorAll('pre[data-src]')).forEach(function (pre) {
-				var src = pre.getAttribute('data-src');
+		Array.prototype.slice.call(document.querySelectorAll('pre[data-src]')).forEach(function (pre) {
+			var src = pre.getAttribute('data-src');
 
-				var language, parent = pre;
-				var lang = /\blang(?:uage)?-(?!\*)(\w+)\b/i;
-				while (parent && !lang.test(parent.className)) {
-					parent = parent.parentNode;
-				}
+			var language, parent = pre;
+			var lang = /\blang(?:uage)?-([\w-]+)\b/i;
+			while (parent && !lang.test(parent.className)) {
+				parent = parent.parentNode;
+			}
 
-				if (parent) {
-					language = (pre.className.match(lang) || [, ''])[1];
-				}
+			if (parent) {
+				language = (pre.className.match(lang) || [, ''])[1];
+			}
 
-				if (!language) {
-					var extension = (src.match(/\.(\w+)$/) || [, ''])[1];
-					language = Extensions[extension] || extension;
-				}
+			if (!language) {
+				var extension = (src.match(/\.(\w+)$/) || [, ''])[1];
+				language = Extensions[extension] || extension;
+			}
 
-				var code = document.createElement('code');
-				code.className = 'language-' + language;
+			var code = document.createElement('code');
+			code.className = 'language-' + language;
 
-				pre.textContent = '';
+			pre.textContent = '';
 
-				code.textContent = 'Loading…';
+			code.textContent = 'Loading…';
 
-				pre.appendChild(code);
+			pre.appendChild(code);
 
-				var xhr = new XMLHttpRequest();
+			var xhr = new XMLHttpRequest();
 
-				xhr.open('GET', src, true);
+			xhr.open('GET', src, true);
 
-				xhr.onreadystatechange = function () {
-					if (xhr.readyState == 4) {
+			xhr.onreadystatechange = function () {
+				if (xhr.readyState == 4) {
 
-						if (xhr.status < 400 && xhr.responseText) {
-							code.textContent = xhr.responseText;
+					if (xhr.status < 400 && xhr.responseText) {
+						code.textContent = xhr.responseText;
 
-							Prism.highlightElement(code);
-						}
-						else if (xhr.status >= 400) {
-							code.textContent = '✖ Error ' + xhr.status + ' while fetching file: ' + xhr.statusText;
-						}
-						else {
-							code.textContent = '✖ Error: File does not exist or is empty';
-						}
+						Prism.highlightElement(code);
 					}
-				};
+					else if (xhr.status >= 400) {
+						code.textContent = '✖ Error ' + xhr.status + ' while fetching file: ' + xhr.statusText;
+					}
+					else {
+						code.textContent = '✖ Error: File does not exist or is empty';
+					}
+				}
+			};
 
-				xhr.send(null);
+			xhr.send(null);
+		});
+
+		if (Prism.plugins.toolbar) {
+			Prism.plugins.toolbar.registerButton('download-file', function (env) {
+				var pre = env.element.parentNode;
+				if (!pre || !/pre/i.test(pre.nodeName) || !pre.hasAttribute('data-src') || !pre.hasAttribute('data-download-link')) {
+					return;
+				}
+				var src = pre.getAttribute('data-src');
+				var a = document.createElement('a');
+				a.textContent = pre.getAttribute('data-download-link-label') || 'Download';
+				a.setAttribute('download', '');
+				a.href = src;
+				return a;
 			});
 		}
 
@@ -2665,13 +3092,13 @@ Prism.languages.js = Prism.languages.javascript;
 });
 
 /**
- * gen toc tree
+ * Gen toc tree
  * @link https://github.com/killercup/grock/blob/5280ae63e16c5739e9233d9009bc235ed7d79a50/styles/solarized/assets/js/behavior.coffee#L54-L81
  * @param  {Array} toc
  * @param  {Number} maxLevel
  * @return {Array}
  */
-function genTree (toc, maxLevel) {
+function genTree(toc, maxLevel) {
   var headlines = [];
   var last = {};
 
@@ -2679,7 +3106,9 @@ function genTree (toc, maxLevel) {
     var level = headline.level || 1;
     var len = level - 1;
 
-    if (level > maxLevel) { return }
+    if (level > maxLevel) {
+      return
+    }
     if (last[len]) {
       last[len].children = (last[len].children || []).concat(headline);
     } else {
@@ -2692,14 +3121,16 @@ function genTree (toc, maxLevel) {
 }
 
 var cache$1 = {};
-var re = /[\u2000-\u206F\u2E00-\u2E7F\\'!"#$%&()*+,.\/:;<=>?@\[\]^`{|}~]/g;
+var re = /[\u2000-\u206F\u2E00-\u2E7F\\'!"#$%&()*+,./:;<=>?@[\]^`{|}~]/g;
 
-function lower (string) {
+function lower(string) {
   return string.toLowerCase()
 }
 
-function slugify (str) {
-  if (typeof str !== 'string') { return '' }
+function slugify(str) {
+  if (typeof str !== 'string') {
+    return ''
+  }
 
   var slug = str
     .trim()
@@ -2711,7 +3142,7 @@ function slugify (str) {
     .replace(/^(\d)/, '_$1');
   var count = cache$1[slug];
 
-  count = cache$1.hasOwnProperty(slug) ? count + 1 : 0;
+  count = hasOwn.call(cache$1, slug) ? count + 1 : 0;
   cache$1[slug] = count;
 
   if (count) {
@@ -2725,11 +3156,11 @@ slugify.clear = function () {
   cache$1 = {};
 };
 
-function replace (m, $1) {
+function replace(m, $1) {
   return '<img class="emoji" src="https://assets-cdn.github.com/images/icons/emoji/' + $1 + '.png" alt="' + $1 + '" />'
 }
 
-function emojify (text) {
+function emojify(text) {
   return text
     .replace(/<(pre|template|code)[^>]*?>[\s\S]+?<\/(pre|template|code)>/g, function (m) { return m.replace(/:/g, '__colon__'); })
     .replace(/:(\w+?):/ig, (inBrowser && window.emojify) || replace)
@@ -2739,7 +3170,7 @@ function emojify (text) {
 var decode = decodeURIComponent;
 var encode = encodeURIComponent;
 
-function parseQuery (query) {
+function parseQuery(query) {
   var res = {};
 
   query = query.trim().replace(/^(\?|#|&)/, '');
@@ -2758,25 +3189,23 @@ function parseQuery (query) {
   return res
 }
 
-function stringifyQuery (obj) {
+function stringifyQuery(obj, ignores) {
+  if ( ignores === void 0 ) ignores = [];
+
   var qs = [];
 
   for (var key in obj) {
+    if (ignores.indexOf(key) > -1) {
+      continue
+    }
     qs.push(
-      obj[key]
-        ? ((encode(key)) + "=" + (encode(obj[key]))).toLowerCase()
-        : encode(key)
+      obj[key] ?
+        ((encode(key)) + "=" + (encode(obj[key]))).toLowerCase() :
+        encode(key)
     );
   }
 
   return qs.length ? ("?" + (qs.join('&'))) : ''
-}
-
-function getPath () {
-  var args = [], len = arguments.length;
-  while ( len-- ) args[ len ] = arguments[ len ];
-
-  return cleanPath(args.join('/'))
 }
 
 var isAbsolutePath = cached(function (path) {
@@ -2784,22 +3213,187 @@ var isAbsolutePath = cached(function (path) {
 });
 
 var getParentPath = cached(function (path) {
-  return /\/$/g.test(path)
-    ? path
-    : (path = path.match(/(\S*\/)[^\/]+$/)) ? path[1] : ''
+  return /\/$/g.test(path) ?
+    path :
+    (path = path.match(/(\S*\/)[^/]+$/)) ? path[1] : ''
 });
 
 var cleanPath = cached(function (path) {
   return path.replace(/^\/+/, '/').replace(/([^:])\/{2,}/g, '$1/')
 });
 
+function getPath() {
+  var args = [], len = arguments.length;
+  while ( len-- ) args[ len ] = arguments[ len ];
+
+  return cleanPath(args.join('/'))
+}
+
+var replaceSlug = cached(function (path) {
+  return path.replace('#', '?id=')
+});
+
+Prism.languages['markup-templating'] = {};
+
+Object.defineProperties(Prism.languages['markup-templating'], {
+	buildPlaceholders: {
+		// Tokenize all inline templating expressions matching placeholderPattern
+		// If the replaceFilter function is provided, it will be called with every match.
+		// If it returns false, the match will not be replaced.
+		value: function (env, language, placeholderPattern, replaceFilter) {
+			if (env.language !== language) {
+				return;
+			}
+
+			env.tokenStack = [];
+
+			env.code = env.code.replace(placeholderPattern, function(match) {
+				if (typeof replaceFilter === 'function' && !replaceFilter(match)) {
+					return match;
+				}
+				var i = env.tokenStack.length;
+				// Check for existing strings
+				while (env.code.indexOf('___' + language.toUpperCase() + i + '___') !== -1)
+					{ ++i; }
+
+				// Create a sparse array
+				env.tokenStack[i] = match;
+
+				return '___' + language.toUpperCase() + i + '___';
+			});
+
+			// Switch the grammar to markup
+			env.grammar = Prism.languages.markup;
+		}
+	},
+	tokenizePlaceholders: {
+		// Replace placeholders with proper tokens after tokenizing
+		value: function (env, language) {
+			if (env.language !== language || !env.tokenStack) {
+				return;
+			}
+
+			// Switch the grammar back
+			env.grammar = Prism.languages[language];
+
+			var j = 0;
+			var keys = Object.keys(env.tokenStack);
+			var walkTokens = function (tokens) {
+				if (j >= keys.length) {
+					return;
+				}
+				for (var i = 0; i < tokens.length; i++) {
+					var token = tokens[i];
+					if (typeof token === 'string' || (token.content && typeof token.content === 'string')) {
+						var k = keys[j];
+						var t = env.tokenStack[k];
+						var s = typeof token === 'string' ? token : token.content;
+
+						var index = s.indexOf('___' + language.toUpperCase() + k + '___');
+						if (index > -1) {
+							++j;
+							var before = s.substring(0, index);
+							var middle = new Prism.Token(language, Prism.tokenize(t, env.grammar, language), 'language-' + language, t);
+							var after = s.substring(index + ('___' + language.toUpperCase() + k + '___').length);
+							var replacement;
+							if (before || after) {
+								replacement = [before, middle, after].filter(function (v) { return !!v; });
+								walkTokens(replacement);
+							} else {
+								replacement = middle;
+							}
+							if (typeof token === 'string') {
+								Array.prototype.splice.apply(tokens, [i, 1].concat(replacement));
+							} else {
+								token.content = replacement;
+							}
+
+							if (j >= keys.length) {
+								break;
+							}
+						}
+					} else if (token.content && typeof token.content !== 'string') {
+						walkTokens(token.content);
+					}
+				}
+			};
+
+			walkTokens(env.tokens);
+		}
+	}
+});
+
+// See https://github.com/PrismJS/prism/pull/1367
 var cachedLinks = {};
 
-var Compiler = function Compiler (config, router) {
+function getAndRemoveConfig(str) {
+  if ( str === void 0 ) str = '';
+
+  var config = {};
+
+  if (str) {
+    str = str
+      .replace(/^'/, '')
+      .replace(/'$/, '')
+      .replace(/:([\w-]+)=?([\w-]+)?/g, function (m, key, value) {
+        config[key] = (value && value.replace(/&quot;/g, '')) || true;
+        return ''
+      })
+      .trim();
+  }
+
+  return {str: str, config: config}
+}
+
+var compileMedia = {
+  markdown: function markdown(url) {
+    return {
+      url: url
+    }
+  },
+  mermaid: function mermaid(url) {
+    return {
+      url: url
+    }
+  },
+  iframe: function iframe(url, title) {
+    return {
+      html: ("<iframe src=\"" + url + "\" " + (title || 'width=100% height=400') + "></iframe>")
+    }
+  },
+  video: function video(url, title) {
+    return {
+      html: ("<video src=\"" + url + "\" " + (title || 'controls') + ">Not Support</video>")
+    }
+  },
+  audio: function audio(url, title) {
+    return {
+      html: ("<audio src=\"" + url + "\" " + (title || 'controls') + ">Not Support</audio>")
+    }
+  },
+  code: function code(url, title) {
+    var lang = url.match(/\.(\w+)$/);
+
+    lang = title || (lang && lang[1]);
+    if (lang === 'md') {
+      lang = 'markdown';
+    }
+
+    return {
+      url: url,
+      lang: lang
+    }
+  }
+};
+
+var Compiler = function Compiler(config, router) {
+  var this$1 = this;
+
   this.config = config;
   this.router = router;
   this.cacheTree = {};
   this.toc = [];
+  this.cacheTOC = {};
   this.linkTarget = config.externalLinkTarget || '_blank';
   this.contentBase = router.getBasePath();
 
@@ -2810,27 +3404,92 @@ var Compiler = function Compiler (config, router) {
   if (isFn(mdConf)) {
     compile = mdConf(marked, renderer);
   } else {
-    marked.setOptions(merge(mdConf, {
-      renderer: merge(renderer, mdConf.renderer)
-    }));
+    marked.setOptions(
+      merge(mdConf, {
+        renderer: merge(renderer, mdConf.renderer)
+      })
+    );
     compile = marked;
   }
 
-  this.compile = cached(function (text) {
-    var html = '';
+  this._marked = compile;
+  this.compile = function (text) {
+    var isCached = true;
+    var result = cached(function (_) {
+      isCached = false;
+      var html = '';
 
-    if (!text) { return text }
+      if (!text) {
+        return text
+      }
 
-    html = compile(text);
-    html = config.noEmoji ? html : emojify(html);
-    slugify.clear();
+      if (isPrimitive(text)) {
+        html = compile(text);
+      } else {
+        html = compile.parser(text);
+      }
 
-    return html
-  });
+      html = config.noEmoji ? html : emojify(html);
+      slugify.clear();
+
+      return html
+    })(text);
+
+    var curFileName = this$1.router.parse().file;
+
+    if (isCached) {
+      this$1.toc = this$1.cacheTOC[curFileName];
+    } else {
+      this$1.cacheTOC[curFileName] = [].concat( this$1.toc );
+    }
+
+    return result
+  };
 };
 
-Compiler.prototype.matchNotCompileLink = function matchNotCompileLink (link) {
-  var links = this.config.noCompileLinks;
+Compiler.prototype.compileEmbed = function compileEmbed (href, title) {
+  var ref = getAndRemoveConfig(title);
+    var str = ref.str;
+    var config = ref.config;
+  var embed;
+  title = str;
+
+  if (config.include) {
+    if (!isAbsolutePath(href)) {
+      href = getPath(
+        this.contentBase,
+        getParentPath(this.router.getCurrentPath()),
+        href
+      );
+    }
+
+    var media;
+    if (config.type && (media = compileMedia[config.type])) {
+      embed = media.call(this, href, title);
+      embed.type = config.type;
+    } else {
+      var type = 'code';
+      if (/\.(md|markdown)/.test(href)) {
+        type = 'markdown';
+      } else if (/\.mmd/.test(href)) {
+        type = 'mermaid';
+      } else if (/\.html?/.test(href)) {
+        type = 'iframe';
+      } else if (/\.(mp4|ogg)/.test(href)) {
+        type = 'video';
+      } else if (/\.mp3/.test(href)) {
+        type = 'audio';
+      }
+      embed = compileMedia[type].call(this, href, title);
+      embed.type = type;
+    }
+
+    return embed
+  }
+};
+
+Compiler.prototype._matchNotCompileLink = function _matchNotCompileLink (link) {
+  var links = this.config.noCompileLinks || [];
 
   for (var i = 0; i < links.length; i++) {
     var n = links[i];
@@ -2852,80 +3511,127 @@ Compiler.prototype._initRenderer = function _initRenderer () {
   var origin = {};
 
   /**
-   * render anchor tag
-   * @link https://github.com/chjj/marked#overriding-renderer-methods
+   * Render anchor tag
+   * @link https://github.com/markedjs/marked#overriding-renderer-methods
    */
   origin.heading = renderer.heading = function (text, level) {
-    var nextToc = { level: level, title: text };
+    var ref = getAndRemoveConfig(text);
+      var str = ref.str;
+      var config = ref.config;
+    var nextToc = {level: level, title: str};
 
-    if (/{docsify-ignore}/g.test(text)) {
-      text = text.replace('{docsify-ignore}', '');
-      nextToc.title = text;
+    if (/{docsify-ignore}/g.test(str)) {
+      str = str.replace('{docsify-ignore}', '');
+      nextToc.title = str;
       nextToc.ignoreSubHeading = true;
     }
 
-    if (/{docsify-ignore-all}/g.test(text)) {
-      text = text.replace('{docsify-ignore-all}', '');
-      nextToc.title = text;
+    if (/{docsify-ignore-all}/g.test(str)) {
+      str = str.replace('{docsify-ignore-all}', '');
+      nextToc.title = str;
       nextToc.ignoreAllSubs = true;
     }
 
-    var slug = slugify(text);
-    var url = router.toURL(router.getCurrentPath(), { id: slug });
+    var slug = slugify(config.id || str);
+    var url = router.toURL(router.getCurrentPath(), {id: slug});
     nextToc.slug = url;
     _self.toc.push(nextToc);
 
-    return ("<h" + level + " id=\"" + slug + "\"><a href=\"" + url + "\" data-id=\"" + slug + "\" class=\"anchor\"><span>" + text + "</span></a></h" + level + ">")
+    return ("<h" + level + " id=\"" + slug + "\"><a href=\"" + url + "\" data-id=\"" + slug + "\" class=\"anchor\"><span>" + str + "</span></a></h" + level + ">")
   };
-  // highlight code
+  // Highlight code
   origin.code = renderer.code = function (code, lang) {
       if ( lang === void 0 ) lang = '';
 
-    var hl = prism.highlight(code, prism.languages[lang] || prism.languages.markup);
+    code = code.replace(/@DOCSIFY_QM@/g, '`');
+    var hl = prism.highlight(
+      code,
+      prism.languages[lang] || prism.languages.markup
+    );
 
     return ("<pre v-pre data-lang=\"" + lang + "\"><code class=\"lang-" + lang + "\">" + hl + "</code></pre>")
   };
   origin.link = renderer.link = function (href, title, text) {
-    var blank = '';
+      if ( title === void 0 ) title = '';
 
-    if (!/:|(\/{2})/.test(href) &&
-      !_self.matchNotCompileLink(href) &&
-      !/(\s?:ignore)(\s\S+)?$/.test(title)) {
+    var attrs = '';
+
+    var ref = getAndRemoveConfig(title);
+      var str = ref.str;
+      var config = ref.config;
+    title = str;
+
+    if (
+      !isAbsolutePath(href) &&
+      !_self._matchNotCompileLink(href) &&
+      !config.ignore
+    ) {
+      if (href === _self.config.homepage) {
+        href = 'README';
+      }
       href = router.toURL(href, null, router.getCurrentPath());
     } else {
-      blank = " target=\"" + linkTarget + "\"";
-      title = title && title.replace(/:ignore/g, '').trim();
+      attrs += href.indexOf('mailto:') === 0 ? '' : (" target=\"" + linkTarget + "\"");
     }
 
-    var target = title && title.match(/:target=\w+/);
-    if (target) {
-      target = target[0];
-      title = title.replace(target, '');
-      blank = ' ' + target.slice(1);
+    if (config.target) {
+      attrs += ' target=' + config.target;
+    }
+
+    if (config.disabled) {
+      attrs += ' disabled';
+      href = 'javascript:void(0)';
     }
 
     if (title) {
-      title = " title=\"" + title + "\"";
+      attrs += " title=\"" + title + "\"";
     }
-    return ("<a href=\"" + href + "\"" + (title || '') + blank + ">" + text + "</a>")
+
+    return ("<a href=\"" + href + "\"" + attrs + ">" + text + "</a>")
   };
   origin.paragraph = renderer.paragraph = function (text) {
+    var result;
     if (/^!&gt;/.test(text)) {
-      return helper('tip', text)
+      result = helper('tip', text);
     } else if (/^\?&gt;/.test(text)) {
-      return helper('warn', text)
+      result = helper('warn', text);
+    } else {
+      result = "<p>" + text + "</p>";
     }
-    return ("<p>" + text + "</p>")
+    return result
   };
   origin.image = renderer.image = function (href, title, text) {
     var url = href;
-    var titleHTML = title ? (" title=\"" + title + "\"") : '';
+    var attrs = '';
 
-    if (!isAbsolutePath(href)) {
-      url = getPath(contentBase, href);
+    var ref = getAndRemoveConfig(title);
+      var str = ref.str;
+      var config = ref.config;
+    title = str;
+
+    if (config['no-zoom']) {
+      attrs += ' data-no-zoom';
     }
 
-    return ("<img src=\"" + url + "\" data-origin=\"" + href + "\" alt=\"" + text + "\"" + titleHTML + ">")
+    if (title) {
+      attrs += " title=\"" + title + "\"";
+    }
+
+    var size = config.size;
+    if (size) {
+      var sizes = size.split('x');
+      if (sizes[1]) {
+        attrs += 'width=' + sizes[0] + ' height=' + sizes[1];
+      } else {
+        attrs += 'width=' + sizes[0];
+      }
+    }
+
+    if (!isAbsolutePath(href)) {
+      url = getPath(contentBase, getParentPath(router.getCurrentPath()), href);
+    }
+
+    return ("<img src=\"" + url + "\"data-origin=\"" + href + "\" alt=\"" + text + "\"" + attrs + ">")
   };
 
   renderer.origin = origin;
@@ -2942,10 +3648,9 @@ Compiler.prototype.sidebar = function sidebar (text, level) {
 
   if (text) {
     html = this.compile(text);
-    html = html && html.match(/<ul[^>]*>([\s\S]+)<\/ul>/g)[0];
   } else {
     var tree$$1 = this.cacheTree[currentPath] || genTree(this.toc, level);
-    html = tree(tree$$1, '<ul>');
+    html = tree(tree$$1, '<ul>{inner}</ul>');
     this.cacheTree[currentPath] = tree$$1;
   }
 
@@ -2965,17 +3670,18 @@ Compiler.prototype.subSidebar = function subSidebar (level) {
     var cacheTree = ref.cacheTree;
     var toc = ref.toc;
 
-  toc[0] && toc[0].ignoreAllSubs && (this.toc = []);
+  toc[0] && toc[0].ignoreAllSubs && toc.splice(0);
   toc[0] && toc[0].level === 1 && toc.shift();
-  toc.forEach(function (node, i) {
-    node.ignoreSubHeading && toc.splice(i, 1);
-  });
+
+  for (var i = 0; i < toc.length; i++) {
+    toc[i].ignoreSubHeading && toc.splice(i, 1) && i--;
+  }
 
   var tree$$1 = cacheTree[currentPath] || genTree(toc, level);
 
   cacheTree[currentPath] = tree$$1;
   this.toc = [];
-  return tree(tree$$1, '<ul class="app-sub-sidebar">')
+  return tree(tree$$1)
 };
 
 Compiler.prototype.article = function article (text) {
@@ -2998,7 +3704,7 @@ var title = $.title;
 /**
  * Toggle button
  */
-function btn (el, router) {
+function btn(el) {
   var toggle = function (_) { return body.classList.toggle('close'); };
 
   el = getNode(el);
@@ -3007,21 +3713,35 @@ function btn (el, router) {
     toggle();
   });
 
-  var sidebar = getNode('.sidebar');
-
   isMobile &&
     on(
       body,
       'click',
       function (_) { return body.classList.contains('close') && toggle(); }
     );
-  on(sidebar, 'click', function (_) { return setTimeout((function (_) { return getAndActive(router, sidebar, true, true); }, 0)); }
-  );
 }
 
-function sticky () {
+function collapse(el) {
+  el = getNode(el);
+
+  on(el, 'click', function (ref) {
+    var target = ref.target;
+
+    if (
+      target.nodeName === 'A' &&
+      target.nextSibling &&
+      target.nextSibling.classList.contains('app-sub-sidebar')
+    ) {
+      toggleClass(target.parentNode, 'collapse');
+    }
+  });
+}
+
+function sticky() {
   var cover = getNode('section.cover');
-  if (!cover) { return }
+  if (!cover) {
+    return
+  }
   var coverHeight = cover.getBoundingClientRect().height;
 
   if (window.pageYOffset >= coverHeight || cover.classList.contains('hidden')) {
@@ -3039,11 +3759,11 @@ function sticky () {
  * @param  {Boolean} autoTitle  auto set title
  * @return {element}
  */
-function getAndActive (router, el, isParent, autoTitle) {
+function getAndActive(router, el, isParent, autoTitle) {
   el = getNode(el);
 
   var links = findAll(el, 'a');
-  var hash = router.toURL(router.getCurrentPath());
+  var hash = decodeURI(router.toURL(router.getCurrentPath()));
   var target;
 
   links.sort(function (a, b) { return b.href.length - a.href.length; }).forEach(function (a) {
@@ -3059,7 +3779,7 @@ function getAndActive (router, el, isParent, autoTitle) {
   });
 
   if (autoTitle) {
-    $.title = target ? ((target.innerText) + " - " + title) : title;
+    $.title = target ? (target.title || ((target.innerText) + " - " + title)) : title;
   }
 
   return target
@@ -3166,8 +3886,10 @@ var scroller = null;
 var enableScrollEvent = true;
 var coverHeight = 0;
 
-function scrollTo (el) {
-  if (scroller) { scroller.stop(); }
+function scrollTo(el) {
+  if (scroller) {
+    scroller.stop();
+  }
   enableScrollEvent = false;
   scroller = new Tweezer({
     start: window.pageYOffset,
@@ -3182,8 +3904,10 @@ function scrollTo (el) {
     .begin();
 }
 
-function highlight (path) {
-  if (!enableScrollEvent) { return }
+function highlight(path) {
+  if (!enableScrollEvent) {
+    return
+  }
   var sidebar = getNode('.sidebar');
   var anchors = findAll('.anchor');
   var wrap = find(sidebar, '.sidebar-nav');
@@ -3196,22 +3920,28 @@ function highlight (path) {
     var node = anchors[i];
 
     if (node.offsetTop > top) {
-      if (!last) { last = node; }
+      if (!last) {
+        last = node;
+      }
       break
     } else {
       last = node;
     }
   }
-  if (!last) { return }
-  var li = nav[getNavKey(path, last.getAttribute('data-id'))];
+  if (!last) {
+    return
+  }
+  var li = nav[getNavKey(decodeURIComponent(path), last.getAttribute('data-id'))];
 
-  if (!li || li === active) { return }
+  if (!li || li === active) {
+    return
+  }
 
   active && active.classList.remove('active');
   li.classList.add('active');
   active = li;
 
-  // scroll into view
+  // Scroll into view
   // https://github.com/vuejs/vuejs.org/blob/master/themes/vue/source/js/common.js#L282-L297
   if (!hoverOver && body.classList.contains('sticky')) {
     var height = sidebar.clientHeight;
@@ -3226,11 +3956,11 @@ function highlight (path) {
   }
 }
 
-function getNavKey (path, id) {
+function getNavKey(path, id) {
   return (path + "?id=" + id)
 }
 
-function scrollActiveSidebar (router) {
+function scrollActiveSidebar(router) {
   var cover = find('.cover.show');
   coverHeight = cover ? cover.offsetHeight : 0;
 
@@ -3240,20 +3970,28 @@ function scrollActiveSidebar (router) {
   for (var i = 0, len = lis.length; i < len; i += 1) {
     var li = lis[i];
     var a = li.querySelector('a');
-    if (!a) { continue }
+    if (!a) {
+      continue
+    }
     var href = a.getAttribute('href');
 
     if (href !== '/') {
       var ref = router.parse(href);
       var id = ref.query.id;
       var path$1 = ref.path;
-      if (id) { href = getNavKey(path$1, id); }
+      if (id) {
+        href = getNavKey(path$1, id);
+      }
     }
 
-    if (href) { nav[decodeURIComponent(href)] = li; }
+    if (href) {
+      nav[decodeURIComponent(href)] = li;
+    }
   }
 
-  if (isMobile) { return }
+  if (isMobile) {
+    return
+  }
   var path = router.getCurrentPath();
   off('scroll', function () { return highlight(path); });
   on('scroll', function () { return highlight(path); });
@@ -3265,8 +4003,10 @@ function scrollActiveSidebar (router) {
   });
 }
 
-function scrollIntoView (path, id) {
-  if (!id) { return }
+function scrollIntoView(path, id) {
+  if (!id) {
+    return
+  }
 
   var section = find('#' + id);
   section && scrollTo(section);
@@ -3280,48 +4020,171 @@ function scrollIntoView (path, id) {
 
 var scrollEl = $.scrollingElement || $.documentElement;
 
-function scroll2Top (offset) {
+function scroll2Top(offset) {
   if ( offset === void 0 ) offset = 0;
 
   scrollEl.scrollTop = offset === true ? 0 : Number(offset);
 }
 
-function executeScript () {
+var cached$1 = {};
+
+function walkFetchEmbed(ref, cb) {
+  var embedTokens = ref.embedTokens;
+  var compile = ref.compile;
+  var fetch = ref.fetch;
+
+  var token;
+  var step = 0;
+  var count = 1;
+
+  if (!embedTokens.length) {
+    return cb({})
+  }
+
+  while ((token = embedTokens[step++])) {
+    var next = (function (token) {
+      return function (text) {
+        var embedToken;
+        if (text) {
+          if (token.embed.type === 'markdown') {
+            embedToken = compile.lexer(text);
+          } else if (token.embed.type === 'code') {
+            embedToken = compile.lexer(
+              '```' +
+                token.embed.lang +
+                '\n' +
+                text.replace(/`/g, '@DOCSIFY_QM@') +
+                '\n```\n'
+            );
+          } else if (token.embed.type === 'mermaid') {
+            embedToken = [
+              {type: 'html', text: ("<div class=\"mermaid\">\n" + text + "\n</div>")}
+            ];
+            embedToken.links = {};
+          } else {
+            embedToken = [{type: 'html', text: text}];
+            embedToken.links = {};
+          }
+        }
+        cb({token: token, embedToken: embedToken});
+        if (++count >= step) {
+          cb({});
+        }
+      }
+    })(token);
+
+    if (token.embed.url) {
+      {
+        get(token.embed.url).then(next);
+      }
+    } else {
+      next(token.embed.html);
+    }
+  }
+}
+
+function prerenderEmbed(ref, done) {
+  var compiler = ref.compiler;
+  var raw = ref.raw; if ( raw === void 0 ) raw = '';
+  var fetch = ref.fetch;
+
+  var hit = cached$1[raw];
+  if (hit) {
+    var copy = hit.slice();
+    copy.links = hit.links;
+    return done(copy)
+  }
+
+  var compile = compiler._marked;
+  var tokens = compile.lexer(raw);
+  var embedTokens = [];
+  var linkRE = compile.InlineLexer.rules.link;
+  var links = tokens.links;
+
+  tokens.forEach(function (token, index) {
+    if (token.type === 'paragraph') {
+      token.text = token.text.replace(
+        new RegExp(linkRE.source, 'g'),
+        function (src, filename, href, title) {
+          var embed = compiler.compileEmbed(href, title);
+
+          if (embed) {
+            embedTokens.push({
+              index: index,
+              embed: embed
+            });
+          }
+
+          return src
+        }
+      );
+    }
+  });
+
+  var moveIndex = 0;
+  walkFetchEmbed({compile: compile, embedTokens: embedTokens, fetch: fetch}, function (ref) {
+    var embedToken = ref.embedToken;
+    var token = ref.token;
+
+    if (token) {
+      var index = token.index + moveIndex;
+
+      merge(links, embedToken.links);
+
+      tokens = tokens
+        .slice(0, index)
+        .concat(embedToken, tokens.slice(index + 1));
+      moveIndex += embedToken.length - 1;
+    } else {
+      cached$1[raw] = tokens.concat();
+      tokens.links = cached$1[raw].links = links;
+      done(tokens);
+    }
+  });
+}
+
+function executeScript() {
   var script = findAll('.markdown-section>script')
-      .filter(function (s) { return !/template/.test(s.type); })[0];
-  if (!script) { return false }
+    .filter(function (s) { return !/template/.test(s.type); })[0];
+  if (!script) {
+    return false
+  }
   var code = script.innerText.trim();
-  if (!code) { return false }
+  if (!code) {
+    return false
+  }
 
   setTimeout(function (_) {
     window.__EXECUTE_RESULT__ = new Function(code)();
   }, 0);
 }
 
-function formatUpdated (html, updated, fn) {
-  updated = typeof fn === 'function'
-    ? fn(updated)
-    : typeof fn === 'string'
-      ? tinydate(fn)(new Date(updated))
-      : updated;
+function formatUpdated(html, updated, fn) {
+  updated =
+    typeof fn === 'function' ?
+      fn(updated) :
+      typeof fn === 'string' ?
+        tinydate(fn)(new Date(updated)) :
+        updated;
 
   return html.replace(/{docsify-updated}/g, updated)
 }
 
-function renderMain (html) {
+function renderMain(html) {
   if (!html) {
-    // TODO: Custom 404 page
-    html = 'not found';
+    html = '<h1>404 - Not found</h1>';
   }
 
   this._renderTo('.markdown-section', html);
   // Render sidebar with the TOC
   !this.config.loadSidebar && this._renderSidebar();
 
-  // execute script
-  if (this.config.executeScript !== false &&
-      typeof window.Vue !== 'undefined' &&
-      !executeScript()) {
+  // Execute script
+  if (
+    this.config.executeScript !== false &&
+    typeof window.Vue !== 'undefined' &&
+    !executeScript()
+  ) {
     setTimeout(function (_) {
       var vueVM = window.__EXECUTE_RESULT__;
       vueVM && vueVM.$destroy && vueVM.$destroy();
@@ -3332,12 +4195,14 @@ function renderMain (html) {
   }
 }
 
-function renderNameLink (vm) {
+function renderNameLink(vm) {
   var el = getNode('.app-name-link');
   var nameLink = vm.config.nameLink;
   var path = vm.route.path;
 
-  if (!el) { return }
+  if (!el) {
+    return
+  }
 
   if (isPrimitive(vm.config.nameLink)) {
     el.setAttribute('href', nameLink);
@@ -3348,10 +4213,12 @@ function renderNameLink (vm) {
   }
 }
 
-function renderMixin (proto) {
+function renderMixin(proto) {
   proto._renderTo = function (el, content, replace) {
     var node = getNode(el);
-    if (node) { node[replace ? 'outerHTML' : 'innerHTML'] = content; }
+    if (node) {
+      node[replace ? 'outerHTML' : 'innerHTML'] = content;
+    }
   };
 
   proto._renderSidebar = function (text) {
@@ -3363,12 +4230,13 @@ function renderMixin (proto) {
     this._renderTo('.sidebar-nav', this.compiler.sidebar(text, maxLevel));
     var activeEl = getAndActive(this.router, '.sidebar-nav', true, true);
     if (loadSidebar && activeEl) {
-      activeEl.parentNode.innerHTML += (this.compiler.subSidebar(subMaxLevel) || '');
+      activeEl.parentNode.innerHTML +=
+        this.compiler.subSidebar(subMaxLevel) || '';
     } else {
-      // reset toc
+      // Reset toc
       this.compiler.subSidebar();
     }
-    // bind event
+    // Bind event
     this._bindEventOnRendered(activeEl);
   };
 
@@ -3394,10 +4262,12 @@ function renderMixin (proto) {
 
   proto._renderNav = function (text) {
     text && this._renderTo('nav', this.compiler.compile(text));
-    getAndActive(this.router, 'nav');
+    if (this.config.loadNavbar) {
+      getAndActive(this.router, 'nav');
+    }
   };
 
-  proto._renderMain = function (text, opt) {
+  proto._renderMain = function (text, opt, next) {
     var this$1 = this;
     if ( opt === void 0 ) opt = {};
 
@@ -3406,17 +4276,38 @@ function renderMixin (proto) {
     }
 
     callHook(this, 'beforeEach', text, function (result) {
-      var html = this$1.isHTML ? result : this$1.compiler.compile(result);
-      if (opt.updatedAt) {
-        html = formatUpdated(html, opt.updatedAt, this$1.config.formatUpdated);
-      }
+      var html;
+      var callback = function () {
+        if (opt.updatedAt) {
+          html = formatUpdated(html, opt.updatedAt, this$1.config.formatUpdated);
+        }
 
-      callHook(this$1, 'afterEach', html, function (text) { return renderMain.call(this$1, text); });
+        callHook(this$1, 'afterEach', html, function (text) { return renderMain.call(this$1, text); });
+      };
+      if (this$1.isHTML) {
+        html = this$1.result = text;
+        callback();
+        next();
+      } else {
+        prerenderEmbed(
+          {
+            compiler: this$1.compiler,
+            raw: result
+          },
+          function (tokens) {
+            html = this$1.compiler.compile(tokens);
+            callback();
+            next();
+          }
+        );
+      }
     });
   };
 
-  proto._renderCover = function (text) {
+  proto._renderCover = function (text, coverOnly) {
     var el = getNode('.cover');
+
+    toggleClass(getNode('main'), coverOnly ? 'add' : 'remove', 'hidden');
     if (!text) {
       toggleClass(el, 'remove', 'show');
       return
@@ -3424,7 +4315,10 @@ function renderMixin (proto) {
     toggleClass(el, 'add', 'show');
 
     var html = this.coverIsHTML ? text : this.compiler.cover(text);
-    var m = html.trim().match('<p><img.*?data-origin="(.*?)"[^a]+alt="(.*?)">([^<]*?)</p>$');
+
+    var m = html
+      .trim()
+      .match('<p><img.*?data-origin="(.*?)"[^a]+alt="(.*?)">([^<]*?)</p>$');
 
     if (m) {
       if (m[2] === 'color') {
@@ -3448,16 +4342,19 @@ function renderMixin (proto) {
   };
 
   proto._updateRender = function () {
-    // render name link
+    // Render name link
     renderNameLink(this);
   };
 }
 
-function initRender (vm) {
+function initRender(vm) {
   var config = vm.config;
 
   // Init markdown compiler
   vm.compiler = new Compiler(config, vm.router);
+  if (inBrowser) {
+    window.__current_docsify_compiler__ = vm.compiler;
+  }
 
   var id = config.el || '#app';
   var navEl = find('nav') || create('nav');
@@ -3472,6 +4369,16 @@ function initRender (vm) {
     }
     if (config.coverpage) {
       html += cover();
+    }
+
+    if (config.logo) {
+      var isBase64 = /^data:image/.test(config.logo);
+      var isExternal = /(?:http[s]?:)?\/\//.test(config.logo);
+      var isRelative = /^\./.test(config.logo);
+
+      if (!isBase64 && !isExternal && !isRelative) {
+        config.logo = getPath(vm.router.getBasePath(), config.logo);
+      }
     }
 
     html += main(config);
@@ -3492,7 +4399,9 @@ function initRender (vm) {
   }
 
   // Add nav
-  before(navAppendToTarget, navEl);
+  if (config.loadNavbar) {
+    before(navAppendToTarget, navEl);
+  }
 
   if (config.themeColor) {
     $.head.appendChild(
@@ -3505,26 +4414,26 @@ function initRender (vm) {
   toggleClass(body, 'ready');
 }
 
-var cached$1 = {};
+var cached$2 = {};
 
-function getAlias (path, alias, last) {
+function getAlias(path, alias, last) {
   var match = Object.keys(alias).filter(function (key) {
-    var re = cached$1[key] || (cached$1[key] = new RegExp(("^" + key + "$")));
+    var re = cached$2[key] || (cached$2[key] = new RegExp(("^" + key + "$")));
     return re.test(path) && path !== last
   })[0];
 
-  return match
-    ? getAlias(path.replace(cached$1[match], alias[match]), alias, path)
-    : path
+  return match ?
+    getAlias(path.replace(cached$2[match], alias[match]), alias, path) :
+    path
 }
 
-function getFileName (path) {
-  return /\.(md|html)$/g.test(path)
-    ? path
-    : /\/$/g.test(path) ? (path + "README.md") : (path + ".md")
+function getFileName(path, ext) {
+  return new RegExp(("\\.(" + (ext.replace(/^\./, '')) + "|html)$"), 'g').test(path) ?
+    path :
+    /\/$/g.test(path) ? (path + "README" + ext) : ("" + path + ext)
 }
 
-var History = function History (config) {
+var History = function History(config) {
   this.config = config;
 };
 
@@ -3533,15 +4442,16 @@ History.prototype.getBasePath = function getBasePath () {
 };
 
 History.prototype.getFile = function getFile (path, isRelative) {
-  path = path || this.getCurrentPath();
+    if ( path === void 0 ) path = this.getCurrentPath();
 
   var ref = this;
     var config = ref.config;
   var base = this.getBasePath();
+  var ext = typeof config.ext === 'string' ? config.ext : '.md';
 
   path = config.alias ? getAlias(path, config.alias) : path;
-  path = getFileName(path);
-  path = path === '/README.md' ? config.homepage || path : path;
+  path = getFileName(path, ext);
+  path = path === ("/README" + ext) ? config.homepage || path : path;
   path = isAbsolutePath(path) ? path : getPath(base, path);
 
   if (isRelative) {
@@ -3563,19 +4473,30 @@ History.prototype.normalize = function normalize () {};
 
 History.prototype.parse = function parse () {};
 
-History.prototype.toURL = function toURL () {};
+History.prototype.toURL = function toURL (path, params, currentRoute) {
+  var local = currentRoute && path[0] === '#';
+  var route = this.parse(replaceSlug(path));
 
-function replaceHash (path) {
+  route.query = merge({}, route.query, params);
+  path = route.path + stringifyQuery(route.query);
+  path = path.replace(/\.md(\?)|\.md$/, '$1');
+
+  if (local) {
+    var idIndex = currentRoute.indexOf('?');
+    path =
+      (idIndex > 0 ? currentRoute.substr(0, idIndex) : currentRoute) + path;
+  }
+
+  return cleanPath('/' + path)
+};
+
+function replaceHash(path) {
   var i = location.href.indexOf('#');
   location.replace(location.href.slice(0, i >= 0 ? i : 0) + '#' + path);
 }
 
-var replaceSlug = cached(function (path) {
-  return path.replace('#', '?id=')
-});
-
 var HashHistory = (function (History$$1) {
-  function HashHistory (config) {
+  function HashHistory(config) {
     History$$1.call(this, config);
     this.mode = 'hash';
   }
@@ -3610,7 +4531,9 @@ var HashHistory = (function (History$$1) {
 
     path = replaceSlug(path);
 
-    if (path.charAt(0) === '/') { return replaceHash(path) }
+    if (path.charAt(0) === '/') {
+      return replaceHash(path)
+    }
     replaceHash('/' + path);
   };
 
@@ -3643,27 +4566,14 @@ var HashHistory = (function (History$$1) {
   };
 
   HashHistory.prototype.toURL = function toURL (path, params, currentRoute) {
-    var local = currentRoute && path[0] === '#';
-    var route = this.parse(replaceSlug(path));
-
-    route.query = merge({}, route.query, params);
-    path = route.path + stringifyQuery(route.query);
-    path = path.replace(/\.md(\?)|\.md$/, '$1');
-
-    if (local) {
-      var idIndex = currentRoute.indexOf('?');
-      path =
-        (idIndex > 0 ? currentRoute.substr(0, idIndex) : currentRoute) + path;
-    }
-
-    return cleanPath('#/' + path)
+    return '#' + History$$1.prototype.toURL.call(this, path, params, currentRoute)
   };
 
   return HashHistory;
 }(History));
 
 var HTML5History = (function (History$$1) {
-  function HTML5History (config) {
+  function HTML5History(config) {
     History$$1.call(this, config);
     this.mode = 'history';
   }
@@ -3692,7 +4602,7 @@ var HTML5History = (function (History$$1) {
       if (el.tagName === 'A' && !/_blank/.test(el.target)) {
         e.preventDefault();
         var url = el.href;
-        window.history.pushState({ key: url }, '', url);
+        window.history.pushState({key: url}, '', url);
         cb();
       }
     });
@@ -3730,35 +4640,22 @@ var HTML5History = (function (History$$1) {
     }
   };
 
-  HTML5History.prototype.toURL = function toURL (path, params, currentRoute) {
-    var local = currentRoute && path[0] === '#';
-    var route = this.parse(path);
-
-    route.query = merge({}, route.query, params);
-    path = route.path + stringifyQuery(route.query);
-    path = path.replace(/\.md(\?)|\.md$/, '$1');
-
-    if (local) { path = currentRoute + path; }
-
-    return cleanPath('/' + path)
-  };
-
   return HTML5History;
 }(History));
 
-function routerMixin (proto) {
+function routerMixin(proto) {
   proto.route = {};
 }
 
 var lastRoute = {};
 
-function updateRender (vm) {
+function updateRender(vm) {
   vm.router.normalize();
   vm.route = vm.router.parse();
   body.setAttribute('data-page', vm.route.file);
 }
 
-function initRouter (vm) {
+function initRouter(vm) {
   var config = vm.config;
   var mode = config.routerMode || 'hash';
   var router;
@@ -3787,16 +4684,20 @@ function initRouter (vm) {
   });
 }
 
-function eventMixin (proto) {
+function eventMixin(proto) {
   proto.$resetEvents = function () {
     scrollIntoView(this.route.path, this.route.query.id);
-    getAndActive(this.router, 'nav');
+
+    if (this.config.loadNavbar) {
+      getAndActive(this.router, 'nav');
+    }
   };
 }
 
-function initEvent (vm) {
+function initEvent(vm) {
   // Bind toggle button
   btn('button.sidebar-toggle', vm.router);
+  collapse('.sidebar', vm.router);
   // Bind sticky effect
   if (vm.config.coverpage) {
     !isMobile && on('scroll', sticky);
@@ -3805,58 +4706,121 @@ function initEvent (vm) {
   }
 }
 
-function loadNested (path, file, next, vm, first) {
+function loadNested(path, qs, file, next, vm, first) {
   path = first ? path : path.replace(/\/$/, '');
   path = getParentPath(path);
 
-  if (!path) { return }
+  if (!path) {
+    return
+  }
 
-  get(vm.router.getFile(path + file))
-    .then(next, function (_) { return loadNested(path, file, next, vm); });
+  get(
+    vm.router.getFile(path + file) + qs,
+    false,
+    vm.config.requestHeaders
+  ).then(next, function (_) { return loadNested(path, qs, file, next, vm); });
 }
 
-function fetchMixin (proto) {
+function fetchMixin(proto) {
   var last;
+
+  var abort = function () { return last && last.abort && last.abort(); };
+  var request = function (url, hasbar, requestHeaders) {
+    abort();
+    last = get(url, true, requestHeaders);
+    return last
+  };
+
+  var get404Path = function (path, config) {
+    var notFoundPage = config.notFoundPage;
+    var ext = config.ext;
+    var defaultPath = '_404' + (ext || '.md');
+    var key;
+    var path404;
+
+    switch (typeof notFoundPage) {
+      case 'boolean':
+        path404 = defaultPath;
+        break
+      case 'string':
+        path404 = notFoundPage;
+        break
+
+      case 'object':
+        key = Object.keys(notFoundPage)
+          .sort(function (a, b) { return b.length - a.length; })
+          .find(function (key) { return path.match(new RegExp('^' + key)); });
+
+        path404 = (key && notFoundPage[key]) || defaultPath;
+        break
+
+      default:
+        break
+    }
+
+    return path404
+  };
+
+  proto._loadSideAndNav = function (path, qs, loadSidebar, cb) {
+    var this$1 = this;
+
+    return function () {
+      if (!loadSidebar) {
+        return cb()
+      }
+
+      var fn = function (result) {
+        this$1._renderSidebar(result);
+        cb();
+      };
+
+      // Load sidebar
+      loadNested(path, qs, loadSidebar, fn, this$1, true);
+    }
+  };
+
   proto._fetch = function (cb) {
     var this$1 = this;
     if ( cb === void 0 ) cb = noop;
 
     var ref = this.route;
     var path = ref.path;
+    var query = ref.query;
+    var qs = stringifyQuery(query, ['id']);
     var ref$1 = this.config;
     var loadNavbar = ref$1.loadNavbar;
+    var requestHeaders = ref$1.requestHeaders;
     var loadSidebar = ref$1.loadSidebar;
-
     // Abort last request
-    last && last.abort && last.abort();
 
-    last = get(this.router.getFile(path), true);
+    var file = this.router.getFile(path);
+    var req = request(file + qs, true, requestHeaders);
 
     // Current page is html
-    this.isHTML = /\.html$/g.test(path);
-
-    var loadSideAndNav = function () {
-      if (!loadSidebar) { return cb() }
-
-      var fn = function (result) { this$1._renderSidebar(result); cb(); };
-
-      // Load sidebar
-      loadNested(path, loadSidebar, fn, this$1, true);
-    };
+    this.isHTML = /\.html$/g.test(file);
 
     // Load main content
-    last.then(function (text, opt) {
-      this$1._renderMain(text, opt);
-      loadSideAndNav();
-    },
-    function (_) {
-      this$1._renderMain(null);
-      loadSideAndNav();
-    });
+    req.then(
+      function (text, opt) { return this$1._renderMain(
+          text,
+          opt,
+          this$1._loadSideAndNav(path, qs, loadSidebar, cb)
+        ); },
+      function (_) {
+        this$1._fetchFallbackPage(file, qs, cb) || this$1._fetch404(file, qs, cb);
+      }
+    );
 
     // Load nav
     loadNavbar &&
-    loadNested(path, loadNavbar, function (text) { return this$1._renderNav(text); }, this, true);
+      loadNested(
+        path,
+        qs,
+        loadNavbar,
+        function (text) { return this$1._renderNav(text); },
+        this,
+        true
+      );
   };
 
   proto._fetchCover = function () {
@@ -3864,44 +4828,135 @@ function fetchMixin (proto) {
 
     var ref = this.config;
     var coverpage = ref.coverpage;
+    var requestHeaders = ref.requestHeaders;
+    var query = this.route.query;
     var root = getParentPath(this.route.path);
-    var path = this.router.getFile(root + coverpage);
 
-    if (this.route.path !== '/' || !coverpage) {
-      this._renderCover();
-      return
+    if (coverpage) {
+      var path = null;
+      var routePath = this.route.path;
+      if (typeof coverpage === 'string') {
+        if (routePath === '/') {
+          path = coverpage;
+        }
+      } else if (Array.isArray(coverpage)) {
+        path = coverpage.indexOf(routePath) > -1 && '_coverpage';
+      } else {
+        var cover = coverpage[routePath];
+        path = cover === true ? '_coverpage' : cover;
+      }
+
+      var coverOnly = Boolean(path) && this.config.onlyCover;
+      if (path) {
+        path = this.router.getFile(root + path);
+        this.coverIsHTML = /\.html$/g.test(path);
+        get(path + stringifyQuery(query, ['id']), false, requestHeaders).then(
+          function (text) { return this$1._renderCover(text, coverOnly); }
+        );
+      } else {
+        this._renderCover(null, coverOnly);
+      }
+      return coverOnly
     }
-
-    this.coverIsHTML = /\.html$/g.test(path);
-    get(path)
-      .then(function (text) { return this$1._renderCover(text); });
   };
 
   proto.$fetch = function (cb) {
     var this$1 = this;
     if ( cb === void 0 ) cb = noop;
 
-    this._fetchCover();
-    this._fetch(function (result) {
-      this$1.$resetEvents();
+    var done = function () {
       callHook(this$1, 'doneEach');
       cb();
-    });
+    };
+
+    var onlyCover = this._fetchCover();
+
+    if (onlyCover) {
+      done();
+    } else {
+      this._fetch(function () {
+        this$1.$resetEvents();
+        done();
+      });
+    }
+  };
+
+  proto._fetchFallbackPage = function (path, qs, cb) {
+    var this$1 = this;
+    if ( cb === void 0 ) cb = noop;
+
+    var ref = this.config;
+    var requestHeaders = ref.requestHeaders;
+    var fallbackLanguages = ref.fallbackLanguages;
+    var loadSidebar = ref.loadSidebar;
+
+    if (!fallbackLanguages) {
+      return false
+    }
+
+    var local = path.split('/')[1];
+
+    if (fallbackLanguages.indexOf(local) === -1) {
+      return false
+    }
+    var newPath = path.replace(new RegExp(("^/" + local)), '');
+    var req = request(newPath + qs, true, requestHeaders);
+
+    req.then(
+      function (text, opt) { return this$1._renderMain(
+          text,
+          opt,
+          this$1._loadSideAndNav(path, qs, loadSidebar, cb)
+        ); },
+      function () { return this$1._fetch404(path, qs, cb); }
+    );
+
+    return true
+  };
+  /**
+   * Load the 404 page
+   * @param path
+   * @param qs
+   * @param cb
+   * @returns {*}
+   * @private
+   */
+  proto._fetch404 = function (path, qs, cb) {
+    var this$1 = this;
+    if ( cb === void 0 ) cb = noop;
+
+    var ref = this.config;
+    var loadSidebar = ref.loadSidebar;
+    var requestHeaders = ref.requestHeaders;
+    var notFoundPage = ref.notFoundPage;
+
+    var fnLoadSideAndNav = this._loadSideAndNav(path, qs, loadSidebar, cb);
+    if (notFoundPage) {
+      var path404 = get404Path(path, this.config);
+
+      request(this.router.getFile(path404), true, requestHeaders).then(
+        function (text, opt) { return this$1._renderMain(text, opt, fnLoadSideAndNav); },
+        function () { return this$1._renderMain(null, {}, fnLoadSideAndNav); }
+      );
+      return true
+    }
+
+    this._renderMain(null, {}, fnLoadSideAndNav);
+    return false
   };
 }
 
-function initFetch (vm) {
+function initFetch(vm) {
   var ref = vm.config;
   var loadSidebar = ref.loadSidebar;
 
-  // server-client renderer
+  // Server-Side Rendering
   if (vm.rendered) {
     var activeEl = getAndActive(vm.router, '.sidebar-nav', true, true);
     if (loadSidebar && activeEl) {
       activeEl.parentNode.innerHTML += window.__SUB_SIDEBAR__;
     }
     vm._bindEventOnRendered(activeEl);
-    vm._fetchCover();
     vm.$resetEvents();
     callHook(vm, 'doneEach');
     callHook(vm, 'ready');
@@ -3910,10 +4965,10 @@ function initFetch (vm) {
   }
 }
 
-function initMixin (proto) {
+function initMixin(proto) {
   proto._init = function () {
     var vm = this;
-    vm.config = config || {};
+    vm.config = config();
 
     initLifecycle(vm); // Init hooks
     initPlugin(vm); // Install plugins
@@ -3926,7 +4981,7 @@ function initMixin (proto) {
   };
 }
 
-function initPlugin (vm) {
+function initPlugin(vm) {
   [].concat(vm.config.plugins).forEach(function (fn) { return isFn(fn) && fn(vm._lifecycle, vm); });
 }
 
@@ -3935,6 +4990,7 @@ function initPlugin (vm) {
 var util = Object.freeze({
 	cached: cached,
 	hyphenate: hyphenate,
+	hasOwn: hasOwn,
 	merge: merge,
 	isPrimitive: isPrimitive,
 	noop: noop,
@@ -3944,23 +5000,30 @@ var util = Object.freeze({
 	supportsPushState: supportsPushState,
 	parseQuery: parseQuery,
 	stringifyQuery: stringifyQuery,
-	getPath: getPath,
 	isAbsolutePath: isAbsolutePath,
 	getParentPath: getParentPath,
-	cleanPath: cleanPath
+	cleanPath: cleanPath,
+	getPath: getPath,
+	replaceSlug: replaceSlug
 });
 
-var initGlobalAPI = function () {
-  window.Docsify = { util: util, dom: dom, get: get, slugify: slugify };
+function initGlobalAPI () {
+  window.Docsify = {
+    util: util,
+    dom: dom,
+    get: get,
+    slugify: slugify,
+    version: '4.8.6'
+  };
   window.DocsifyCompiler = Compiler;
   window.marked = marked;
   window.Prism = prism;
-};
+}
 
 /**
  * Fork https://github.com/bendrucker/document-ready/blob/master/index.js
  */
-function ready (callback) {
+function ready(callback) {
   var state = document.readyState;
 
   if (state === 'complete' || state === 'interactive') {
@@ -3970,7 +5033,7 @@ function ready (callback) {
   document.addEventListener('DOMContentLoaded', callback);
 }
 
-function Docsify () {
+function Docsify() {
   this._init();
 }
 
@@ -3986,11 +5049,6 @@ eventMixin(proto);
  * Global API
  */
 initGlobalAPI();
-
-/**
- * Version
- */
-Docsify.version = '4.3.15';
 
 /**
  * Run Docsify
