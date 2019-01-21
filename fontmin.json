@@ -1,0 +1,5 @@
+{
+    "src": "src/_fonts/*.otf",
+    "dest": "src/fonts",
+    "content": "content here"
+}
